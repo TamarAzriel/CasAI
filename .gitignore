@@ -1,0 +1,4 @@
+/.venv
+/similarity-train/multilabel0/*
+/data/ikea-data/*
+/yolo-train/best.pt
