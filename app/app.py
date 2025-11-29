@@ -3,13 +3,15 @@
 import streamlit as st
 from PIL import Image
 import os
-import glob
-import re
 import numpy as np
-import shutil  # For safely cleaning up directories
+import shutil
 
-# Import all necessary components from models.py
-# Make sure models.py is in the same directory or accessible via Python path
+# --- CONFIGURATION ---
+APP_DIR = 'appdata/'
+SAVE_IMG_DIR = os.path.join(APP_DIR, 'detect')
+USER_UPLOAD_DIR = os.path.join(APP_DIR, 'uploads')
+
+# Import components from models.py
 try:
     from models import (
         load_yolo_model,
@@ -20,63 +22,49 @@ try:
         calculate_similarities_vectorized
     )
 except ImportError as e:
-    st.error(f"Failed to import from models.py. Ensure the file is present. Error: {e}")
+    st.error(f"Failed to import from models.py: {e}")
     st.stop()
 
-# --- 1. CONFIGURATION ---
-APP_DIR = 'appdata/'
-SAVE_IMG_DIR = os.path.join(APP_DIR, 'detect')
-USER_UPLOAD_DIR = os.path.join(APP_DIR, 'uploads')
 
-
-# --- 2. UTILITY FUNCTIONS ---
+# --- UTILITY FUNCTIONS ---
 
 def compare_similarity(image_vector, ikeadf):
-    """
-    Compare image similarity with IKEA products using vectorized operations.
-    """
-    # Filter out rows where 'vector' might be NaN or incorrect type (if applicable)
+    """Compare image similarity and return top matches."""
     valid_vectors = ikeadf['vector'].apply(lambda x: isinstance(x, np.ndarray))
     filtered_df = ikeadf[valid_vectors].copy()
 
-    # Extract product vectors, ensuring they are flattened arrays
+    if filtered_df.empty:
+        return filtered_df
+
     product_vectors = np.array([v.flatten() for v in filtered_df['vector'].values])
-
-    # Calculate similarities using vectorized operations
     similarities = calculate_similarities_vectorized(image_vector, product_vectors)
-
-    # Add similarity scores to the filtered dataframe
     filtered_df['similarity'] = similarities
 
-    # Sort and return top 1000
-    return filtered_df.sort_values(by=['similarity'], ascending=False).head(1000)
+    return filtered_df.sort_values(by=['similarity'], ascending=False).head(500)
 
 
 def cleanup_old_data():
-    """Safely removes the application data directories."""
     try:
         if os.path.exists(APP_DIR):
-            # shutil.rmtree is safer and cleans up the entire directory structure
             shutil.rmtree(APP_DIR)
-        os.makedirs(SAVE_IMG_DIR, exist_ok=True)  # Recreate necessary directories
+        os.makedirs(SAVE_IMG_DIR, exist_ok=True)
         os.makedirs(USER_UPLOAD_DIR, exist_ok=True)
-    except Exception as e:
-        st.warning(f"Could not clean up old data directories: {e}")
+    except Exception:
+        pass
 
 
-def get_furniture_list(img_dict):
-    """Formats the detected furniture list for display."""
-    return [f"{i + 1} - {item['class']} (Conf: {item['confidence']:.2f})" for i, item in enumerate(img_dict)]
+# --- STREAMLIT APP ---
 
+st.set_page_config(layout="wide", page_title="IKEA Recommender")
 
-# --- 3. STREAMLIT APP LAYOUT & LOGIC ---
-
-st.set_page_config(layout="wide")
 st.title("IKEA Furniture Recommender 🛋️")
-st.write('**_Furnish your home with a click, just from your couch._**')
-st.sidebar.header("Choose a furniture image for recommendation.")
+st.write('**_Upload a photo, select an item, and get similar IKEA products with prices and links!_**')
 
-# Initialize session state for models and data
+# --- SIDEBAR & UPLOAD ---
+st.sidebar.header("Upload Image")
+uploaded_file = st.sidebar.file_uploader("Choose an image (JPG/JPEG)", type=["jpg", "jpeg", "png"])
+
+# Initialize State
 if 'yolo_model' not in st.session_state:
     st.session_state.yolo_model = load_yolo_model()
 if 'similarity_model' not in st.session_state:
@@ -84,175 +72,108 @@ if 'similarity_model' not in st.session_state:
 if 'ikeadf' not in st.session_state:
     st.session_state.ikeadf = load_ikea_dataframe()
 
-# Initialize session state for dynamic data
-if 'similarity_results' not in st.session_state:
-    st.session_state.similarity_results = {}
-if 'detected_photos' not in st.session_state:
-    st.session_state.detected_photos = None
-if 'user_img_path' not in st.session_state:
-    st.session_state.user_img_path = None
-if 'last_upload_name' not in st.session_state:
-    st.session_state.last_upload_name = None
+if 'similarity_results' not in st.session_state: st.session_state.similarity_results = {}
+if 'last_upload_name' not in st.session_state: st.session_state.last_upload_name = None
 
-# Get models and data from session state
-yolo_model = st.session_state.yolo_model
-similarity_model = st.session_state.similarity_model
-ikeadf = st.session_state.ikeadf
-
-# Clean up old data at the start of the app's main loop (or based on a button press)
-# It's better to clear when a new file is uploaded rather than every app run
-# cleanup_old_data()
-
-uploaded_file = st.file_uploader("Choose an image with .jpg format", type=["jpg", "jpeg"])
-
+# Main Logic
 if uploaded_file is not None:
-    # Check if a new file was uploaded
+    # Reset if new file
     if st.session_state.last_upload_name != uploaded_file.name:
-        cleanup_old_data()  # Clean up old data only when a new image is uploaded
-        st.session_state.similarity_results = {}  # Clear cached results
+        cleanup_old_data()
+        st.session_state.similarity_results = {}
+        st.session_state.detected_photos = None
 
     st.session_state.last_upload_name = uploaded_file.name
 
-    # Save user image
+    # Save and display user image
     image = Image.open(uploaded_file)
+    os.makedirs(USER_UPLOAD_DIR, exist_ok=True)
     user_img_path = os.path.join(USER_UPLOAD_DIR, uploaded_file.name)
     image.save(user_img_path)
-    st.session_state.user_img_path = user_img_path
 
-    st.sidebar.image(image, width=250)
-    st.sidebar.success('Upload Successful! Processing...')
+    st.sidebar.image(image, caption="Your Photo", use_container_width=True)
 
-    # --- DETECTION STAGE ---
-    with st.spinner('Working hard on finding furniture...'):
-        try:
-            # Use the fixed get_detected_photos with unique naming
-            img_dict = get_detected_photos(st.session_state.user_img_path, yolo_model, save_dir=SAVE_IMG_DIR)
+    # 1. Detection
+    if st.session_state.get('detected_photos') is None:
+        with st.spinner('Detecting furniture...'):
+            img_dict = get_detected_photos(user_img_path, st.session_state.yolo_model, save_dir=SAVE_IMG_DIR)
             st.session_state.detected_photos = img_dict
-        except Exception as e:
-            st.error(f"Error during object detection: {e}")
-            img_dict = []
+    else:
+        img_dict = st.session_state.detected_photos
 
     if not img_dict:
-        st.warning("No furniture detected in the image. Please try another image or adjust the confidence threshold.")
+        st.warning("No furniture detected. Try a clearer photo.")
     else:
-        furniture_list = get_furniture_list(img_dict)
-
-        st.header("Detected Furniture")
-
-        # Display detected furniture in the main area for better visibility
-        cols = st.columns(len(furniture_list))
+        # Display detected crops
+        st.header("1. Detected Items")
+        cols = st.columns(len(img_dict))
+        furniture_options = []
 
         for i, item in enumerate(img_dict):
-            if i < len(cols):
-                cols[i].caption(f"**{i + 1}. {item['class']}** (Conf: {item['confidence']:.2f})")
-                cols[i].image(Image.open(item['path']), use_container_width=True)
+            if i < 5:  # Limit display columns
+                with cols[i]:
+                    st.image(item['path'], caption=f"{i + 1}. {item['class']}")
+            furniture_options.append(f"{i + 1} - {item['class']}")
 
-        # --- SELECTION STAGE ---
+        # 2. Selection
         st.markdown("---")
+        st.header("2. Find Recommendations")
 
-        options = list(range(len(furniture_list)))
-        option_index = st.selectbox(
-            'Which piece of furniture do you want recommendations for?',
-            options,
-            format_func=lambda x: furniture_list[x]
-        )
+        selected_idx = st.selectbox("Select an item to match:", range(len(furniture_options)),
+                                    format_func=lambda x: furniture_options[x])
 
-        if st.button('Find Similar IKEA Products'):
-            selected_photo = img_dict[option_index]
-            pred_path = selected_photo['path']
+        if st.button('Find Matches'):
+            selected_photo = img_dict[selected_idx]
 
-            # Cache key uses the path (which includes the unique crop name and class)
-            cache_key = f"{pred_path}"
+            with st.spinner(f'Searching IKEA for similar {selected_photo["class"]}s...'):
+                # Get embedding
+                query_vec = get_image_vector(selected_photo['path'], st.session_state.similarity_model)
+                results_df = compare_similarity(query_vec, st.session_state.ikeadf)
 
-            # --- SIMILARITY STAGE ---
-            if cache_key not in st.session_state.similarity_results:
-                with st.spinner(f'Finding similar products for {selected_photo["class"]}...'):
-                    try:
-                        # Get embedding vector (cached)
-                        image_vector = get_image_vector(image_path=pred_path, _similarity_model=similarity_model)
+            if results_df is not None and not results_df.empty:
+                # Filter Categories
+                target_cat = selected_photo['class']  # e.g. "Chair"
 
-                        # Compare similarity with IKEA products (vectorized)
-                        df = compare_similarity(image_vector, ikeadf)
+                # Filter: Check if target category is inside the item_cat string
+                # (Scraper uses "Chair", App uses "Chair", CSV might have "Chair" or "Chairs")
+                match_mask = results_df['item_cat'].str.contains(target_cat, case=False, na=False)
 
-                        # Cache results
-                        st.session_state.similarity_results[cache_key] = df
-                    except Exception as e:
-                        st.error(f"Error during similarity comparison: {e}")
-                        df = None
-            else:
-                df = st.session_state.similarity_results[cache_key]
+                df_exact = results_df[match_mask].head(5)
+                df_other = results_df[~match_mask].head(5)
 
-            if df is not None:
-                # --- RECOMMENDATION DISPLAY STAGE ---
 
-                # Determine target class for filtering (e.g., 'Bed' -> 'beds')
-                obj_class = selected_photo['class'].lower() + 's'
+                # --- Helper to display cards ---
+                def display_cards(dataframe):
+                    cols = st.columns(len(dataframe))
+                    for idx, (row_idx, row) in enumerate(dataframe.iterrows()):
+                        with cols[idx]:
+                            # Data from CSV
+                            name = row.get('item_name', 'Product')
+                            price = row.get('item_price', 'Price N/A')
+                            web_img = row.get('image_url', None)
+                            link = row.get('product_link', None)
 
-                # Filter and display recommendations
-                df_same_class = df[df['item_cat'] == obj_class].head(5)
-                df_other_class = df[df['item_cat'] != obj_class].head(5)
+                            # Display Web Image
+                            if web_img:
+                                try:
+                                    st.image(web_img, use_container_width=True)
+                                except:
+                                    st.error("Img Error")
 
-                st.markdown("## Top Recommendations (Same Category)")
-                st.markdown(f"The most similar **{selected_photo['class']}s** from IKEA.")
+                            st.markdown(f"**{name}**")
+                            st.markdown(f"💰 **{price}**")
 
-                # Display same class recommendations
-                if not df_same_class.empty:
-                    cols_rec = st.columns(5)
-                    for i, (idx, row) in enumerate(df_same_class.iterrows()):
-                        if i >= 5: break
+                            if link:
+                                st.markdown(f"👉 [View on IKEA]({link})")
 
-                        col = cols_rec[i]
-                        # Safely extract title, price, and link
-                        col_title = re.match(r"^([^,]*)", str(row['item_name'])).group()
-                        col_cat = str(row['item_cat'])
-                        col_pic = str(idx)
-                        col_price = f'${row["item_price"]}'
-                        col_link = str(row['prod_url'])
 
-                        # Construct image URL based on project structure
-                        col_url = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                               'data', 'ikea-data', col_cat, col_pic + '.jpg')
-
-                        with col:
-                            try:
-                                # Display image and details
-                                st.image(Image.open(col_url), use_container_width=True)
-                                st.markdown(f"#### **{col_price}**")
-                                st.markdown(f"###### {col_title}")
-                                st.markdown(f"###### [View product info]({col_link})")
-                            except Exception as e:
-                                st.error(f"Image not found or error: {col_url}")
+                st.subheader(f"Best Matches in '{target_cat}'")
+                if not df_exact.empty:
+                    display_cards(df_exact)
+                else:
+                    st.info("No exact category matches found.")
 
                 st.markdown("---")
-                st.markdown("## Alternative Recommendations")
-                st.markdown("Other highly similar items across different categories.")
-
-                # Display other class recommendations
-                if not df_other_class.empty:
-                    cols_alt = st.columns(5)
-                    for i, (idx, row) in enumerate(df_other_class.iterrows()):
-                        if i >= 5: break
-
-                        col = cols_alt[i]
-                        # Safely extract title, price, and link
-                        col_title = re.match(r"^([^,]*)", str(row['item_name'])).group()
-                        col_cat = str(row['item_cat'])
-                        col_pic = str(idx)
-                        col_price = f'${row["item_price"]}'
-                        col_link = str(row['prod_url'])
-
-                        # Construct image URL
-                        col_url = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                               'data', 'ikea-data', col_cat, col_pic + '.jpg')
-
-                        with col:
-                            try:
-                                # Display image and details
-                                st.image(Image.open(col_url), use_container_width=True)
-                                st.markdown(f"#### **{col_price}**")
-                                st.markdown(f"###### {col_title}")
-                                st.markdown(f"###### [View product info]({col_link})")
-                            except Exception as e:
-                                st.error(f"Image not found or error: {col_url}")
-            else:
-                st.error("Could not complete similarity search due to a previous error.")
+                st.subheader("Similar Items (Other Categories)")
+                if not df_other.empty:
+                    display_cards(df_other)
