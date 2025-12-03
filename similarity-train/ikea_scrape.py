@@ -12,8 +12,7 @@ from bs4 import BeautifulSoup
 # המפתחות (למשל Sofa) חייבים להכיל את שם הקטגוריה שהמודל מזהה כדי שהסינון באפליקציה יעבוד
 CATEGORIES = {
     # --- ספות וכורסאות ---
-    "Sofa 2-seat": "https://www.ikea.com/il/he/cat/2-seat-sofas-10667/",
-    "Sofa 3-seat": "https://www.ikea.com/il/he/cat/3-seat-sofas-10669/",
+    "Sofa 3-seat": "https://www.ikea.com/il/he/cat/three-seat-sofas-10670/",
     "Sofa corner": "https://www.ikea.com/il/he/cat/corner-sofas-10670/",
     "Sofa bed": "https://www.ikea.com/il/he/cat/sofa-beds-10663/",
     "Armchair": "https://www.ikea.com/il/he/cat/armchairs-fu006/",
@@ -27,6 +26,7 @@ CATEGORIES = {
     "Bed double": "https://www.ikea.com/il/he/cat/double-beds-16284/",
     "Bed single": "https://www.ikea.com/il/he/cat/single-beds-16285/",
     "Bed frame": "https://www.ikea.com/il/he/cat/bed-frames-bm004/",
+    "Bed upholstered": "https://www.ikea.com/il/he/cat/upholstered-beds-49096/",
 
     # --- שולחנות ---
     "Table dining": "https://www.ikea.com/il/he/cat/dining-tables-21825/",
@@ -44,7 +44,11 @@ CATEGORIES = {
     "Dresser chest": "https://www.ikea.com/il/he/cat/chests-of-drawers-10451/",
     "Dresser tv": "https://www.ikea.com/il/he/cat/tv-benches-10475/",
     "Dresser wardrobe": "https://www.ikea.com/il/he/cat/wardrobes-19053/",
-    "Dresser cabinet": "https://www.ikea.com/il/he/cat/cabinets-10385/"
+    "Dresser cabinet": "https://www.ikea.com/il/he/cat/cabinets-10385/",
+    # תוספות חדשות - ארונות
+    "Wardrobe sliding": "https://www.ikea.com/il/he/cat/sliding-wardrobes-43635/",
+    "Wardrobe kids": "https://www.ikea.com/il/he/cat/childrens-wardrobes-18707/",
+    "Wardrobe hinged": "https://www.ikea.com/il/he/cat/hinged-wardrobes-48005/"
 }
 
 # תיקיות
