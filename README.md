@@ -39,3 +39,4 @@ python app\app.py
 - **Similarity:** run `model\similarity-detector-train.ipynb` (or `python model\embed-ds.py`)
 - **Train YOLO:** `python yolo-train\YOLO_train_v2.py` (confirm args/paths)
 - **Run app:** `python app\app.py`
+- **added minor update
