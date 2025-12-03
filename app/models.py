@@ -30,7 +30,7 @@ TARGET_CLASSES = {'Bed', 'Dresser', 'Chair', 'Sofa', 'Lamp', 'Table'}
 
 YOLO_TO_APP_CLASS_MAP = {
     'bed': 'Bed',
-    'cabinetry': 'Dresser',
+    'wardrobe': 'Dresser',
     'chair': 'Chair',
     'sofa': 'Sofa',
     'lamp': 'Lamp',
