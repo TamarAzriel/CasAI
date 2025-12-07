@@ -10,4 +10,4 @@ results = model.train(
     imgsz=640
     )
 
-#the model will be saved and we will move the best.pt to the root of the folder
+#the model will be saved and we will move the best.onnx to the root of the folder
