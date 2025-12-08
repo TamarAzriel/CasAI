@@ -4,6 +4,7 @@ ultralytics
 opencv-python
 pandas
 numpy
-
-tf-keras
-tensorflow
+sentence-transformers
+requests
+beautifulsoup4
+lxml

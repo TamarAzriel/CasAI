@@ -1,31 +1,28 @@
+"""Generative AI module for furniture redesign using YOLO and Stable Diffusion."""
+
 import os
-import glob
+import sys
 import numpy as np
 import pickle
 import torch
-import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
-from sentence_transformers import SentenceTransformer
 from ultralytics import YOLO
 from diffusers import StableDiffusionInpaintPipeline
 
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from core.config import YOLO_MODEL_PATH, get_style_description
+from core.models import ModelLoader
+
 # ==========================================
-# 1. הגדרות מערכת (Configuration)
+# 1. הגדרות מערכת (System Configuration)
 # ==========================================
 CONFIG = {
     "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
-    "YOLO_PATH": "yolo-train/best.onnx", # וודאי שהנתיב נכון!
     "REPO_DIR": 'ObjectDetectionProject-IKEAFurnituresRecommender',
     "EMBEDDINGS_FILE": 'furniture_embeddings.npy',
     "METADATA_FILE": 'furniture_metadata.pkl'
-}
-
-STYLE_DEFINITIONS = {
-    "asian": "black wood structure, bamboo texture, red accents, minimalist",
-    "industrial": "black metal frame, dark rustic wood, vintage leather, concrete",
-    "scandinavian": "light blonde wood, white color, light grey fabric, clean lines",
-    "modern": "high gloss white finish, glass, chrome metal, geometric lines",
-    "boho": "rattan, colorful textiles, plants, eclectic patterns"
 }
 
 # ==========================================
@@ -34,17 +31,19 @@ STYLE_DEFINITIONS = {
 def initialize_search_engine():
     """
     טוען את מודל החיפוש (CLIP) ואת בסיס הנתונים של איקאה.
+    Loads CLIP model and IKEA database.
     """
     print("📚 [Search] Loading CLIP model and Data...")
     
-    # בדיקת התקנות והורדת דאטה (כמו בקוד הקודם)
+    # בדיקת התקנות והורדת דאטה (Check installation and download data)
     if not os.path.exists(CONFIG['REPO_DIR']):
         print("📦 Cloning IKEA dataset...")
         os.system(f"git clone https://github.com/sophiachann/{CONFIG['REPO_DIR']}.git")
 
-    model = SentenceTransformer('clip-ViT-B-32')
+    model_loader = ModelLoader()
+    model = model_loader.load_clip_model()
     
-    # טעינת זיכרון
+    # טעינת זיכרון (Load from memory)
     if os.path.exists(CONFIG['EMBEDDINGS_FILE']):
         embeddings = np.load(CONFIG['EMBEDDINGS_FILE'])
         with open(CONFIG['METADATA_FILE'], 'rb') as f:
@@ -59,10 +58,12 @@ def initialize_search_engine():
 def get_recommendations(item_name, chosen_style, model, embeddings, metadata, top_k=4):
     """
     מבצע חיפוש רהיטים לפי טקסט.
+    Performs furniture search by text.
     """
-    if embeddings is None: return []
+    if embeddings is None:
+        return []
     
-    style_desc = STYLE_DEFINITIONS.get(chosen_style.lower(), "")
+    style_desc = get_style_description(chosen_style)
     full_query = f"{style_desc} {item_name}"
     print(f"🔍 [Search] Query: '{full_query}'")
 
@@ -74,7 +75,7 @@ def get_recommendations(item_name, chosen_style, model, embeddings, metadata, to
     top_indices = np.argsort(similarities)[::-1][:50]
     raw_results = [(metadata[i], similarities[i]) for i in top_indices]
     
-    # סינון שם הקובץ
+    # סינון שם הקובץ (Filter by filename)
     target = item_name.lower().rstrip('s')
     filtered = [r for r in raw_results if target in os.path.basename(r[0]).lower()]
     
@@ -86,23 +87,25 @@ def get_recommendations(item_name, chosen_style, model, embeddings, metadata, to
 def initialize_generative_models():
     """
     טוען את YOLO ו-Stable Diffusion פעם אחת לזיכרון.
+    Loads YOLO and Stable Diffusion models once into memory.
     """
     print("🎨 [GenAI] Loading Generative Models (This may take time)...")
     
-    # 1. טעינת YOLO
+    # 1. טעינת YOLO (Load YOLO)
     yolo_model = None
     try:
-        yolo_model = YOLO(CONFIG['YOLO_PATH'])
+        model_loader = ModelLoader()
+        yolo_model = model_loader.load_yolo_model()
         print("✅ YOLO Loaded.")
     except Exception as e:
         print(f"❌ Failed to load YOLO: {e}")
 
-    # 2. טעינת Stable Diffusion
+    # 2. טעינת Stable Diffusion (Load Stable Diffusion)
     sd_pipe = None
     try:
         sd_pipe = StableDiffusionInpaintPipeline.from_pretrained(
             "runwayml/stable-diffusion-inpainting",
-            torch_dtype=torch.float32, # לשיפור ביצועים ב-GPU אפשר float16
+            torch_dtype=torch.float32,  # לשיפור ביצועים ב-GPU אפשר float16 (for GPU performance can use float16)
             safety_checker=None
         ).to(CONFIG['DEVICE'])
         print("✅ Stable Diffusion Loaded.")
@@ -114,6 +117,7 @@ def initialize_generative_models():
 def generate_new_furniture_design(image_path, prompt, yolo_model, sd_pipe):
     """
     מקבל תמונה, מוצא רהיט, ומצייר עליו מחדש לפי הפרומפט.
+    Takes an image, finds furniture, and redraws it according to the prompt.
     """
     if not yolo_model or not sd_pipe:
         print("❌ Models not loaded correctly.")
