@@ -1,5 +1,7 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+# app.py - Streamlit Application
+
+import streamlit as st
+from PIL import Image
 import os
 import numpy as np
 import shutil

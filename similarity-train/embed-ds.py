@@ -1,97 +1,89 @@
 import os
-import cv2
+import glob
 import numpy as np
-import pandas as pd
+import pickle
+import matplotlib.pyplot as plt
+from PIL import Image
+from sentence_transformers import SentenceTransformer
 
-# הגדרת סביבה למודל
-os.environ["TF_USE_LEGACY_KERAS"] = "1"
-from tf_keras.models import Model, load_model
+# --- חלק 1: הגדרות והתקנות (Settings) ---
+STYLE_DEFINITIONS = {
+    "asian": "black wood structure, bamboo texture, red accents, paper texture, dark brown timber, minimalist square shapes",
+    "beach": "light birch wood, rattan and wicker material, white painted wood, beige linen fabric, sand colors, light oak",
+    "contemporary": "curved furniture lines, smooth grey fabric, white and beige, round shapes, matte finish, soft texture",
+    "craftsman": "solid oak wood, thick vertical slats, dark brown timber, sturdy rectangular structure, natural wood grain",
+    "eclectic": "colorful fabric, velvet texture, mixed patterns, bright yellow or red or blue, unique asymmetric shape",
+    "farmhouse": "white painted wood, solid pine top, black metal cup handles, beige fabric, shaker style doors, rustic white",
+    "industrial": "black metal frame, dark rustic wood, vintage leather, concrete texture, wire mesh, rivets, dark grey",
+    "mediterranean": "warm terracotta and orange colors, black wrought iron, dark rustic wood, heavy solid structure",
+    "midcentury": "walnut wood texture, tapered wooden legs, mustard yellow or olive green fabric, curved plywood, teak veneer",
+    "modern": "high gloss white finish, clear glass, chrome metal, sharp geometric lines, black and white monochrome, plastic",
+    "rustic": "solid pine wood, natural wood grain with knots, brown wood stain, rough timber surface, heavy wood construction",
+    "scandinavian": "light blonde wood, birch or pine, white color, light grey fabric, simple clean lines, plywood texture",
+    "classic": "dark brown wood veneer, panel doors with glass, classic metal handles, beige upholstery, formal shape",
+    "transitional": "grey fabric, dark wood legs, simple classic shape, neutral beige tones, clean finish",
+    "tropical": "natural rattan structure, cane webbing, green leaf patterns, bamboo, dark exotic wood"
+}
 
-# --- נתיבים ---
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(THIS_DIR) # התיקייה הראשית (CasAI)
-
-# מקור הנתונים (מה שהסקרייפר יצר)
-CSV_PATH = os.path.join(THIS_DIR, "data", "ikea_il.csv")
-IMAGE_DIR = os.path.join(THIS_DIR, "data", "ikea_il_images")
-
-# יעד השמירה (תיקיית הנתונים של האפליקציה)
-IKEADATA_DIR = os.path.join(PROJECT_ROOT, "data", "ikea-data")
-OUTPUT_PKL = os.path.join(IKEADATA_DIR, "ikea_final_model0.pkl")
-
-# מודל האימון
-SIM_MODEL_PATH = os.path.join(THIS_DIR, "multilabel0")
-EMBED_LAYER_NAME = "dense_4"
-
-# יצירת תיקיית יעד אם לא קיימת
-os.makedirs(IKEADATA_DIR, exist_ok=True)
-
-# --- פונקציות ---
-
-def load_similarity_model():
-    print(f"🔁 Loading model from: {SIM_MODEL_PATH}")
-    if not os.path.exists(SIM_MODEL_PATH):
-        raise FileNotFoundError(f"Model path not found: {SIM_MODEL_PATH}")
-        
-    base_model = load_model(SIM_MODEL_PATH, compile=False)
-    
+# --- חלק 2: פונקציה ראשונה - אתחול וטעינת זיכרון (Embedding) ---
+def initialize_search_engine():
+    """
+    בודקת התקנות, מורידה דאטה, טוענת מודל ויוצרת/טוענת embeddings.
+    מחזירה: (model, embeddings, metadata)
+    """
+    # 1. התקנות רק אם צריך
     try:
-        # חילוץ שכבת ה-Embedding
-        embed_model = Model(
-            inputs=base_model.input,
-            outputs=base_model.get_layer(EMBED_LAYER_NAME).output,
-        )
-    except ValueError:
-        print(f"Warning: Layer {EMBED_LAYER_NAME} not found. Using output.")
-        embed_model = base_model
+        import sentence_transformers
+    except ImportError:
+        print("🛠️ Installing libraries...")
+        os.system('pip install sentence-transformers pillow numpy -q')
 
-    return embed_model
+    # 2. הורדת הדאטה
+    if not os.path.exists('ObjectDetectionProject-IKEAFurnituresRecommender'):
+        print("📦 Cloning IKEA dataset...")
+        os.system('git clone https://github.com/sophiachann/ObjectDetectionProject-IKEAFurnituresRecommender.git')
 
-def preprocess_for_predict(path):
-    img = cv2.imread(path)
-    if img is None:
-        return None
-    img = cv2.resize(img, (100, 100))
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = img.astype("float32") / 255.0
-    return np.expand_dims(img, axis=0)
+    # 3. נתיבים
+    REPO_DIR = 'ObjectDetectionProject-IKEAFurnituresRecommender'
+    IMAGES_ROOT_PATH = os.path.join(REPO_DIR, 'ikea', 'ikea-data')
+    EMBEDDINGS_FILE = 'furniture_embeddings.npy'
+    METADATA_FILE = 'furniture_metadata.pkl'
 
-def build_vectors():
-    print(f"📄 Loading CSV: {CSV_PATH}")
-    if not os.path.exists(CSV_PATH):
-        raise FileNotFoundError(f"CSV not found! Run ikea_scrape.py first.")
+    print("🤖 Loading CLIP model...")
+    model = SentenceTransformer('clip-ViT-B-32')
 
-    df = pd.read_csv(CSV_PATH)
-    model = load_similarity_model()
-    
-    vectors = []
-    valid_rows = [] # נשמור רק שורות שהצלחנו לעבד
-
-    print("⚙️  Generating vectors...")
-    for idx, row in df.iterrows():
-        img_file = row.get("image_file")
-        img_path = os.path.join(IMAGE_DIR, str(img_file))
-
-        if os.path.exists(img_path):
-            img_array = preprocess_for_predict(img_path)
-            if img_array is not None:
-                vec = model.predict(img_array, verbose=0).flatten()
-                vectors.append(vec)
-                valid_rows.append(idx)
-            else:
-                # תמונה פגומה
-                pass
+    # 4. בדיקת זיכרון (Cache)
+    if os.path.exists(EMBEDDINGS_FILE) and os.path.exists(METADATA_FILE):
+        print("✅ Found saved index! Loading...")
+        embeddings = np.load(EMBEDDINGS_FILE)
+        with open(METADATA_FILE, 'rb') as f:
+            metadata = pickle.load(f)
+    else:
+        print("⚠️ Building Index (First run only)...")
+        image_paths = glob.glob(os.path.join(IMAGES_ROOT_PATH, '**', '*.jpg'), recursive=True) + \
+                      glob.glob(os.path.join(IMAGES_ROOT_PATH, '**', '*.jpeg'), recursive=True)
         
-        if idx % 100 == 0:
-            print(f"   Processed {idx}/{len(df)}")
+        new_embeddings = []
+        new_metadata = []
 
-    # יצירת DataFrame חדש רק עם הצלחות
-    final_df = df.loc[valid_rows].copy()
-    final_df["vector"] = vectors
-    
-    # שמירה כ-pickle עבור האפליקציה
-    final_df.to_pickle(OUTPUT_PKL)
-    print(f"\n✅ Saved final data to: {OUTPUT_PKL}")
+        for i, img_path in enumerate(image_paths):
+            try:
+                img = Image.open(img_path).convert('RGB')
+                new_embeddings.append(model.encode(img))
+                new_metadata.append(img_path)
+            except Exception as e:
+                pass
+            
+            if i > 0 and i % 100 == 0:
+                print(f"Processed {i}/{len(image_paths)}...")
 
-if __name__ == "__main__":
-    build_vectors()
+        embeddings = np.array(new_embeddings)
+        metadata = new_metadata
+
+        # שמירה
+        np.save(EMBEDDINGS_FILE, embeddings)
+        with open(METADATA_FILE, 'wb') as f:
+            pickle.dump(metadata, f)
+        print("✅ Indexing Complete!")
+
+    return model, embeddings, metadata

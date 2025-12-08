@@ -1,125 +1,210 @@
+import os
+import glob
+import numpy as np
+import pickle
 import torch
+import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
+from sentence_transformers import SentenceTransformer
 from ultralytics import YOLO
 from diffusers import StableDiffusionInpaintPipeline
 
-# הגדרות
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-YOLO_PATH = "yolo-train/best.onnx"  # ודאי שהקובץ הזה קיים בתיקייה!
+# ==========================================
+# 1. הגדרות מערכת (Configuration)
+# ==========================================
+CONFIG = {
+    "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
+    "YOLO_PATH": "yolo-train/best.onnx", # וודאי שהנתיב נכון!
+    "REPO_DIR": 'ObjectDetectionProject-IKEAFurnituresRecommender',
+    "EMBEDDINGS_FILE": 'furniture_embeddings.npy',
+    "METADATA_FILE": 'furniture_metadata.pkl'
+}
 
+STYLE_DEFINITIONS = {
+    "asian": "black wood structure, bamboo texture, red accents, minimalist",
+    "industrial": "black metal frame, dark rustic wood, vintage leather, concrete",
+    "scandinavian": "light blonde wood, white color, light grey fabric, clean lines",
+    "modern": "high gloss white finish, glass, chrome metal, geometric lines",
+    "boho": "rattan, colorful textiles, plants, eclectic patterns"
+}
 
-def get_furniture_mask(image_path):
+# ==========================================
+# 2. מודול חיפוש והמלצות (Recommender Module)
+# ==========================================
+def initialize_search_engine():
     """
-    מזהה רהיט (ספה/מיטה/כסא) בתמונה ומחזיר את התמונה + מסכה.
-    מסנן חלונות, עציצים ושאר דברים לא רלוונטיים.
+    טוען את מודל החיפוש (CLIP) ואת בסיס הנתונים של איקאה.
     """
-    print(f"🔍 Loading YOLO model from {YOLO_PATH}...")
+    print("📚 [Search] Loading CLIP model and Data...")
+    
+    # בדיקת התקנות והורדת דאטה (כמו בקוד הקודם)
+    if not os.path.exists(CONFIG['REPO_DIR']):
+        print("📦 Cloning IKEA dataset...")
+        os.system(f"git clone https://github.com/sophiachann/{CONFIG['REPO_DIR']}.git")
+
+    model = SentenceTransformer('clip-ViT-B-32')
+    
+    # טעינת זיכרון
+    if os.path.exists(CONFIG['EMBEDDINGS_FILE']):
+        embeddings = np.load(CONFIG['EMBEDDINGS_FILE'])
+        with open(CONFIG['METADATA_FILE'], 'rb') as f:
+            metadata = pickle.load(f)
+        print("✅ [Search] System Ready.")
+    else:
+        print("⚠️ Data missing! Please run indexing script first.")
+        embeddings, metadata = None, None
+
+    return model, embeddings, metadata
+
+def get_recommendations(item_name, chosen_style, model, embeddings, metadata, top_k=4):
+    """
+    מבצע חיפוש רהיטים לפי טקסט.
+    """
+    if embeddings is None: return []
+    
+    style_desc = STYLE_DEFINITIONS.get(chosen_style.lower(), "")
+    full_query = f"{style_desc} {item_name}"
+    print(f"🔍 [Search] Query: '{full_query}'")
+
+    query_vec = model.encode(full_query)
+    norm_data = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norm_query = np.linalg.norm(query_vec)
+    similarities = np.dot(embeddings / norm_data, query_vec / norm_query)
+
+    top_indices = np.argsort(similarities)[::-1][:50]
+    raw_results = [(metadata[i], similarities[i]) for i in top_indices]
+    
+    # סינון שם הקובץ
+    target = item_name.lower().rstrip('s')
+    filtered = [r for r in raw_results if target in os.path.basename(r[0]).lower()]
+    
+    return filtered[:top_k] if filtered else raw_results[:top_k]
+
+# ==========================================
+# 3. מודול גנרטיבי (Generative Module: YOLO + SD)
+# ==========================================
+def initialize_generative_models():
+    """
+    טוען את YOLO ו-Stable Diffusion פעם אחת לזיכרון.
+    """
+    print("🎨 [GenAI] Loading Generative Models (This may take time)...")
+    
+    # 1. טעינת YOLO
+    yolo_model = None
     try:
-        model = YOLO(YOLO_PATH)
+        yolo_model = YOLO(CONFIG['YOLO_PATH'])
+        print("✅ YOLO Loaded.")
     except Exception as e:
-        print(f"❌ Error loading YOLO: {e}")
-        return None, None
+        print(f"❌ Failed to load YOLO: {e}")
 
-    results = model(image_path)
+    # 2. טעינת Stable Diffusion
+    sd_pipe = None
+    try:
+        sd_pipe = StableDiffusionInpaintPipeline.from_pretrained(
+            "runwayml/stable-diffusion-inpainting",
+            torch_dtype=torch.float32, # לשיפור ביצועים ב-GPU אפשר float16
+            safety_checker=None
+        ).to(CONFIG['DEVICE'])
+        print("✅ Stable Diffusion Loaded.")
+    except Exception as e:
+        print(f"❌ Failed to load Stable Diffusion: {e}")
 
+    return yolo_model, sd_pipe
+
+def generate_new_furniture_design(image_path, prompt, yolo_model, sd_pipe):
+    """
+    מקבל תמונה, מוצא רהיט, ומצייר עליו מחדש לפי הפרומפט.
+    """
+    if not yolo_model or not sd_pipe:
+        print("❌ Models not loaded correctly.")
+        return None
+
+    # --- שלב א: זיהוי ומסיכה (YOLO) ---
+    print(f"🕵️ [GenAI] Detecting furniture in {image_path}...")
+    results = yolo_model(image_path)
+    
     if not results or len(results[0].boxes) == 0:
-        print("❌ YOLO לא מצא שום אובייקט בתמונה.")
-        return None, None
+        print("❌ No objects detected.")
+        return None
 
-    # --- התיקון החכם: סינון רהיטים בלבד ---
     target_furniture = ['sofa', 'couch', 'bed', 'chair', 'table']
     best_box = None
     max_area = 0
 
-    print(f"🔎 סורק אובייקטים בתמונה...")
-
     for box in results[0].boxes:
-        # בדיקת שם האובייקט
-        class_id = int(box.cls[0])
-        class_name = model.names[class_id].lower()
-
-        # חישוב גודל (כדי למצוא את הרהיט הכי דומיננטי)
+        cls_id = int(box.cls[0])
+        name = yolo_model.names[cls_id].lower()
         x1, y1, x2, y2 = box.xyxy.cpu().numpy()[0]
         area = (x2 - x1) * (y2 - y1)
-
-        print(f"   - נמצא: {class_name} (שטח: {int(area)})")
-
-        # אם זה רהיט מהרשימה שלנו, וגם גדול יותר ממה שמצאנו עד עכשיו
-        if class_name in target_furniture and area > max_area:
+        
+        if name in target_furniture and area > max_area:
             max_area = area
             best_box = (x1, y1, x2, y2)
 
-    if best_box is None:
-        print(f"⚠️ המודל מצא דברים (כמו חלונות), אבל לא רהיטים מהרשימה: {target_furniture}")
-        return None, None
-
-    print(f"✅ נבחר רהיט לצביעה: {best_box}")
+    if not best_box:
+        print("⚠️ Found objects but not target furniture.")
+        return None
 
     # יצירת המסכה
     img = Image.open(image_path).convert("RGB")
-    mask = Image.new("L", img.size, 0)  # רקע שחור
+    mask = Image.new("L", img.size, 0)
     draw = ImageDraw.Draw(mask)
+    bx1, by1, bx2, by2 = best_box
+    draw.rectangle((bx1-10, by1-10, bx2+10, by2+10), fill=255)
 
-    x1, y1, x2, y2 = best_box
-    # הרחבה קטנה ב-10 פיקסלים כדי שהצבע יכסה את כל הספה
-    draw.rectangle((x1 - 10, y1 - 10, x2 + 10, y2 + 10), fill=255)  # מלבן לבן
+    # --- שלב ב: יצירה (Stable Diffusion) ---
+    full_prompt = f"a high quality {prompt}, interior design, realistic, 4k"
+    neg_prompt = "low quality, messy, bad anatomy, text, watermark"
+    print(f"🖌️ [GenAI] Inpainting: '{full_prompt}'...")
 
-    return img, mask
-
-
-def inpaint_room(image_path, style_prompt):
-    """
-    הפונקציה הראשית: מקבלת תמונה וסגנון, ומחזירה תמונה חדשה.
-    """
-    # שלב 1: משיגים מסכה אוטומטית מה-YOLO
-    original_image, mask_image = get_furniture_mask(image_path)
-
-    if original_image is None:
-        return None
-
-    # שלב 2: מציירים מחדש עם Stable Diffusion
-    print("🎨 Loading Stable Diffusion...")
-    pipe = StableDiffusionInpaintPipeline.from_pretrained(
-        "runwayml/stable-diffusion-inpainting",
-        torch_dtype=torch.float32,
-        safety_checker=None
-    ).to(DEVICE)
-
-    # הנחיה מדויקת לבינה המלאכותית
-    full_prompt = f"a high quality {style_prompt}, interior design, realistic, 4k, cozy home"
-    negative_prompt = "low quality, blurry, distorted, window, messy, bad anatomy, text, watermark"
-
-    print(f"🖌️ Generating: '{full_prompt}'...")
-
-    # שינוי גודל זמני ל-512x512 (שהמודל אוהב)
+    # Resize ל-512x512 לעבודה תקינה של המודל
     w, h = 512, 512
-    image_resized = original_image.resize((w, h))
-    mask_resized = mask_image.resize((w, h))
+    img_resized = img.resize((w, h))
+    mask_resized = mask.resize((w, h))
 
-    result = pipe(
+    result = sd_pipe(
         prompt=full_prompt,
-        negative_prompt=negative_prompt,
-        image=image_resized,
+        negative_prompt=neg_prompt,
+        image=img_resized,
         mask_image=mask_resized,
-        num_inference_steps=25,  # מספר הצעדים לציור
-        strength=0.9,  # כמה חזק לשנות את הספה
+        num_inference_steps=25,
+        strength=0.9,
         guidance_scale=7.5
     ).images[0]
 
-    # מחזירים לגודל מקורי
-    return result.resize(original_image.size)
+    return result.resize(img.size)
 
-
-# --- בדיקה ---
+# ==========================================
+# 4. התוכנית הראשית (Main)
+# ==========================================
 if __name__ == "__main__":
-    TEST_IMAGE = "test_room.jpg"
-    STYLE = "modern blue velvet sofa"  # נסי צבע בולט כדי לראות שינוי
+    # --- חלק 1: אתחול המערכות ---
+    # נטען את מנוע החיפוש
+    search_model, db_emb, db_meta = initialize_search_engine()
+    
+    # נטען את מנוע הגנרציה (רק אם צריך לעצב מחדש)
+    # yolo, sd_pipe = initialize_generative_models() 
 
-    print("🚀 מתחיל תהליך עיצוב מחדש...")
-    final_image = inpaint_room(TEST_IMAGE, STYLE)
-
-    if final_image:
-        final_image.save("final_result.png")
-        print("\n🎉 הסתיים בהצלחה! תפתחי את 'final_result.png'")
-    else:
-        print("\n❌ נכשל. בדקי את ההודעות למעלה.")
+    # --- חלק 2: דוגמה לחיפוש רהיט ---
+    print("\n--- 1. Recommending Furniture ---")
+    recs = get_recommendations("sofa", "industrial", search_model, db_emb, db_meta)
+    if recs:
+        print(f"Found {len(recs)} recommendations. Best match: {recs[0][0]}")
+    
+    # --- חלק 3: דוגמה לעיצוב חדר מחדש ---
+    # הערה: בטל את ההערה למטה רק אם יש לך את הקובץ 'test_room.jpg' ואת מודל ה-YOLO מאומן
+    """
+    print("\n--- 2. Redesigning Room ---")
+    yolo, sd_pipe = initialize_generative_models() # טעינה כבדה
+    
+    new_room = generate_new_furniture_design(
+        image_path="test_room.jpg",
+        prompt="modern yellow velvet sofa",
+        yolo_model=yolo,
+        sd_pipe=sd_pipe
+    )
+    
+    if new_room:
+        new_room.save("redesigned_room.png")
+        new_room.show()
+    """
