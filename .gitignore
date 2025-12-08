@@ -1,6 +1,6 @@
 /.venv
 /similarity-train/multilabel0/*
-/data/*
+/data/ikea*/
 /yolo-train/best.onnx
 /appdata/*
 __pycache__/
