@@ -7,6 +7,7 @@ from utils.detection import DetectionService
 # Create model loader instance
 _model_loader = ModelLoader()
 
+
 # --- MODEL LOADING FUNCTIONS (with Streamlit caching) ---
 
 @st.cache_resource(show_spinner="Loading YOLO Detection Model...")
@@ -41,7 +42,7 @@ def load_ikea_dataframe():
 def get_detected_photos(image_path, yolo_model, save_dir='appdata/detect/', conf_threshold=0.25):
     """
     Detect furniture in image using YOLO and save cropped images.
-    
+
     This is a wrapper function that maintains backward compatibility
     with the existing app.py code.
     """
