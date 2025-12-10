@@ -1,6 +1,11 @@
+import sys
+import os
+
+# הוספת התיקייה הראשית ל-PATH כדי שנמצא את core
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
 from models import (
     load_yolo_model,
     load_similarity_model,
@@ -40,6 +45,11 @@ def recommend_text():
     recommender = Recommender(similarity_model, ikea_df)
     results = recommender.recommend(query_text=query, top_k=10)
 
+    # --- תיקון: מחיקת עמודת הוקטורים לפני השליחה ---
+    if 'vector' in results.columns:
+        results = results.drop(columns=['vector'])
+    # -----------------------------------------------
+
     return jsonify(results.to_dict(orient="records"))
 
 
@@ -74,6 +84,9 @@ def recommend_image():
     img = request.files["image"]
     text = request.form.get("text", "")
 
+    # יצירת התיקייה אם אינה קיימת
+    os.makedirs("uploads", exist_ok=True)
+    
     save_path = os.path.join("uploads", img.filename)
     img.save(save_path)
 
@@ -83,7 +96,7 @@ def recommend_image():
     if not detections:
         return jsonify({"error": "no furniture detected"}), 400
 
-    # לוקחים את הפריט הראשון
+    # לוקחים את הפריט הראשון שזוהה
     selected = detections[0]["path"]
 
     recommender = Recommender(similarity_model, ikea_df)
@@ -93,6 +106,11 @@ def recommend_image():
         query_image_path=selected,
         top_k=10
     )
+
+    # --- תיקון: מחיקת עמודת הוקטורים לפני השליחה ---
+    if 'vector' in results.columns:
+        results = results.drop(columns=['vector'])
+    # -----------------------------------------------
 
     return jsonify(results.to_dict(orient="records"))
 

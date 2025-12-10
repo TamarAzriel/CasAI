@@ -5,9 +5,10 @@ import { Plus, X, Image as ImageIcon } from "lucide-react";
 interface DesignRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onGenerate: (image: string | null) => void;
 }
 
-const DesignRequestModal = ({ isOpen, onClose }: DesignRequestModalProps) => {
+const DesignRequestModal = ({ isOpen, onClose, onGenerate }: DesignRequestModalProps) => {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [vision, setVision] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,8 +29,7 @@ const DesignRequestModal = ({ isOpen, onClose }: DesignRequestModalProps) => {
   };
 
   const handleGenerate = () => {
-    // Placeholder for generation logic
-    console.log("Generating design with:", { uploadedImage, vision });
+    onGenerate(uploadedImage);
   };
 
   return (
