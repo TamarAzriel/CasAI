@@ -108,8 +108,7 @@ CATEGORIES = {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-IMAGE_DIR = os.path.join(DATA_DIR,
-"ikea_il_images")
+IMAGE_DIR = os.path.join(DATA_DIR, "ikea_il_images")
 CSV_PATH = os.path.join(DATA_DIR, "ikea_il.csv")
 
 # כותרות מעודכנות
@@ -242,7 +241,7 @@ def download_and_save_csv():
     with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["item_id", "item_name", "item_price", "item_cat","image_url", "product_link", "image_file"]
+            fieldnames=["item_id", "item_name", "item_price", "item_cat", "image_url", "product_link", "image_file"]
         )
         writer.writeheader()
         writer.writerows(all_rows)
