@@ -165,4 +165,13 @@
   .text-shadow-editorial {
     text-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
   }
+
+  /* Hide scrollbar but allow scrolling */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

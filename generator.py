@@ -35,8 +35,14 @@ CONFIG = {
     "SEG_MODEL_PATH": "yolov8n-seg.pt"  # המודל החדש לזיהוי מדויק
 }
 
+# --- הגדרת משתנים גלובליים למודלים (נטענים רק אם השרת ירצה) ---
+yolo_model_gen = None
+sd_pipe_gen = None
+# -------------------------------------------------------------
+
+
 # ==========================================
-# 2. מודול חיפוש והמלצות (Recommender Module) - מהקובץ הישן
+# 2. מודול חיפוש והמלצות (Recommender Module)
 # ==========================================
 def initialize_search_engine():
     """
@@ -93,6 +99,7 @@ def get_recommendations(item_name, chosen_style, model, embeddings, metadata, to
     
     return filtered[:top_k] if filtered else raw_results[:top_k]
 
+
 # ==========================================
 # 3. מודול גנרטיבי חדש (Generative Module: YOLO + SD-LCM)
 # ==========================================
@@ -101,42 +108,49 @@ def initialize_generative_models():
     טוען את המודלים המהירים (Ultra-Fast) והמתוקנים.
     """
     print("\n--- [GenAI] Loading Generative Models ---")
+    global yolo_model_gen, sd_pipe_gen
     
     # 1. טעינת YOLO
-    yolo_model = None
     try:
-        yolo_model = YOLO(CONFIG['SEG_MODEL_PATH'])
+        yolo_model_gen = YOLO(CONFIG['SEG_MODEL_PATH'])
         print("✅ YOLO Segmentation Loaded.")
     except Exception as e:
         print(f"❌ Failed to load YOLO: {e}")
         return None, None
 
     # 2. טעינת Stable Diffusion + TinyVAE + LCM
-    sd_pipe = None
     try:
         # VAE מהיר
         fast_vae = AutoencoderTiny.from_pretrained("madebyollin/taesd", torch_dtype=torch.float32)
 
         # Pipeline ראשי
-        sd_pipe = StableDiffusionInpaintPipeline.from_pretrained(
+        sd_pipe_gen = StableDiffusionInpaintPipeline.from_pretrained(
             "runwayml/stable-diffusion-inpainting",
-            vae=fast_vae,              
+            vae=fast_vae, 
             torch_dtype=torch.float32,
             safety_checker=None
         )
         
         # האצת LCM
-        sd_pipe.load_lora_weights("latent-consistency/lcm-lora-sdv1-5")
-        sd_pipe.scheduler = LCMScheduler.from_config(sd_pipe.scheduler.config)
+        sd_pipe_gen.load_lora_weights("latent-consistency/lcm-lora-sdv1-5")
+        sd_pipe_gen.scheduler = LCMScheduler.from_config(sd_pipe_gen.scheduler.config)
 
-        sd_pipe.to(CONFIG['DEVICE'])
+        # --- תיקון קריטי: הפעלת המודל על CPU בלבד אם אין כרטיס גרפי חזק ---
+        if CONFIG['DEVICE'] == 'cuda':
+            print("🚀 Running on CUDA (GPU) - High performance expected.")
+            sd_pipe_gen.to(CONFIG['DEVICE'])
+        else:
+            print("🐌 Running on CPU - Expect long generation times.")
+            sd_pipe_gen.to('cpu') 
+            
         print("✅ Stable Diffusion (Ultra-Fast) Loaded.")
         
     except Exception as e:
         print(f"❌ Failed to load Stable Diffusion: {e}")
-        return None, None
+        sd_pipe_gen = None
+        return yolo_model_gen, None
     
-    return yolo_model, sd_pipe
+    return yolo_model_gen, sd_pipe_gen
 
 def generate_new_furniture_design(image_path, prompt, yolo_model, sd_pipe):
     """
@@ -189,7 +203,7 @@ def generate_new_furniture_design(image_path, prompt, yolo_model, sd_pipe):
         if is_relevant and area > max_area:
             max_area = area
             best_mask = results[0].masks.xy[i]
-            print(f"   ✅ Selected: {name} (Area: {area:.0f})")
+            print(f"   ✅ Selected: {name} (Area: {area:.0f})")
 
     if best_mask is None:
         print("⚠️ Target furniture not found.")
@@ -222,29 +236,38 @@ def generate_new_furniture_design(image_path, prompt, yolo_model, sd_pipe):
 
     return result.resize(img.size)
 
+
 # ==========================================
-# 4. התוכנית הראשית (Main) - בדיקה
+# 4. ראפר (Wrapper) ל-server.py
+# ==========================================
+# זו הפונקציה ש-server.py מצפה לה
+def generate_design(original_image_path: str, selected_crop_url: str, prompt: str):
+    print(f"--- [GENERATE] Request received. Crop URL: {selected_crop_url} ---")
+    
+    # בדיקה אם המודל הגנרטיבי נטען
+    global sd_pipe_gen, yolo_model_gen
+    
+    if sd_pipe_gen is None or yolo_model_gen is None:
+        print("⚠️ Generative model not available. Returning dummy image.")
+        # --- DUMMY RETURN (לצורך בדיקה וייצוב) ---
+        from PIL import Image
+        # צור תמונה כחולה פשוטה בגודל 512x512
+        img = Image.new('RGB', (512, 512), color = 'blue') 
+        return img 
+        # --------------------------------------------
+    
+    # אם המודלים נטענו, נריץ את הלוגיקה המלאה
+    return generate_new_furniture_design(
+        original_image_path, 
+        prompt, 
+        yolo_model_gen, 
+        sd_pipe_gen
+    )
+
+
+# ==========================================
+# 5. התוכנית הראשית (Main) - בדיקה
 # ==========================================
 if __name__ == "__main__":
     
-    print("⚠️ Test run is temporarily disabled (Production Mode).") 
-
-    """
-    # --- בדיקת חיפוש (Search Test) ---
-    search_model, db_emb, db_meta = initialize_search_engine()
-    if search_model:
-        recs = get_recommendations("sofa", "industrial", search_model, db_emb, db_meta)
-        print(f"Found recommendations: {len(recs)}")
-
-    # --- בדיקת עיצוב (Design Test) ---
-    yolo, sd = initialize_generative_models()
-    if yolo and sd:
-        test_img = "test_room.jpeg"
-        if os.path.exists(test_img):
-            res = generate_new_furniture_design(
-                test_img, 
-                "Green velvet sofa", 
-                yolo, sd
-            )
-            if res: res.save("final_test.png")
-    """
+    print("⚠️ Test run is temporarily disabled (Production Mode).")

@@ -9,7 +9,7 @@ from ultralytics import YOLO
 import sys
 import os
 
-# Add parent directory to path for imports
+# Add parent directory to path for imports (assuming the structure is correct)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import (
@@ -39,17 +39,6 @@ class DetectionService:
     ) -> List[Dict]:
         """
         Detect furniture in image using YOLO and save cropped images.
-        
-        Args:
-            image_path: Path to input image
-            save_dir: Directory to save cropped images
-            conf_threshold: Confidence threshold for detection
-            
-        Returns:
-            List of detected furniture items with metadata
-            
-        Raises:
-            ValueError: If image cannot be read
         """
         os.makedirs(save_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(image_path))[0]
@@ -89,18 +78,28 @@ class DetectionService:
                 if app_class_name not in TARGET_CLASSES:
                     continue
                 
+                # --- שמירה ויצירת נתיבים (התיקון שהוספנו) ---
                 file_name = f"{base_name}_{counter}_{app_class_name}.jpg"
                 save_path = os.path.join(save_dir, file_name)
                 
                 crop_img = pil_image.crop(tuple(box.tolist()))
                 crop_img.save(save_path)
                 
+                # יצירת ה-URL הציבורי (crop_url)
+                normalized_path = os.path.normpath(save_path).replace(os.path.sep, '/')
+                if not normalized_path.startswith('/'):
+                    normalized_path = '/' + normalized_path
+                # ---------------------------------------------
+                
                 detected_photos.append({
                     'File_name': file_name,
                     'class': app_class_name,
                     'path': save_path,
                     'bbox': box.tolist(),
-                    'confidence': confidence
+                    'confidence': confidence,
+                    # --- המפתח שפתר את ה-KeyError ---
+                    'crop_url': normalized_path, 
+                    # ----------------------------------
                 })
                 counter += 1
         

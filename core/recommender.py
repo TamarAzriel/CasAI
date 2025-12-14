@@ -23,6 +23,9 @@ class Recommender:
         """
         self.model = model
         self.embeddings_df = self._prepare_embeddings(embeddings_df)
+        
+        # --- DEBUG קריטי: הדפסת שמות העמודות ---
+        print(f"DEBUG: Recommendation DF Columns: {self.embeddings_df.columns.tolist()}")
     
     @staticmethod
     def _prepare_embeddings(embeddings_df: pd.DataFrame) -> pd.DataFrame:
