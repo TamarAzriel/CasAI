@@ -1,74 +1,82 @@
-"""Model loading and management utilities."""
+"""Model loading and management utilities.
+
+This is the ONLY file that backend should import from.
+It provides a unified interface to load all services.
+"""
 
 import os
 import pickle
 from typing import Optional
 import pandas as pd
-from ultralytics import YOLO
-from sentence_transformers import SentenceTransformer
 
-from .config import (
-    YOLO_MODEL_PATH,
-    YOLO_MODEL_PATH_PT,
-    EMBEDDINGS_FILE,
-    CLIP_MODEL_NAME
-)
+from .config import EMBEDDINGS_FILE
+from .clip import load_clip_model as _load_clip_model
+from .yolo import load_yolo_model as _load_yolo_model, YOLODetectionService
+from .diffusion import load_diffusion_model as _load_diffusion_model, generate_design
+from .recommender import Recommender
 
 
 class ModelLoader:
-    """Utility class for loading ML models."""
+    """Service factory for loading ML models and services.
+    
+    This class provides high-level service interfaces that backend should use.
+    All services are pre-configured and ready to use.
+    """
+    
+    # ========================================================================
+    # Public Service Methods (Backend should only use these)
+    # ========================================================================
     
     @staticmethod
-    def load_yolo_model(model_path: Optional[str] = None) -> YOLO:
+    def load_detection_service(model_path: Optional[str] = None) -> YOLODetectionService:
         """
-        Load YOLO model for furniture detection.
+        Load detection service for furniture detection.
         
         Args:
             model_path: Optional custom path to YOLO model
             
         Returns:
-            Loaded YOLO model
-            
-        Raises:
-            FileNotFoundError: If model file doesn't exist
+            YOLODetectionService instance ready to use
         """
-        if model_path:
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"YOLO model not found at {model_path}")
-            return YOLO(model_path, task='detect')
-        
-        # Try .onnx first, then .pt
-        if os.path.exists(YOLO_MODEL_PATH):
-            return YOLO(str(YOLO_MODEL_PATH), task='detect')
-        elif os.path.exists(YOLO_MODEL_PATH_PT):
-            return YOLO(str(YOLO_MODEL_PATH_PT), task='detect')
-        else:
-            raise FileNotFoundError(
-                f"YOLO model not found at {YOLO_MODEL_PATH} or {YOLO_MODEL_PATH_PT}"
-            )
+        return YOLODetectionService(model_path=model_path)
     
     @staticmethod
-    def load_clip_model() -> SentenceTransformer:
+    def load_recommendation_service(df_path: Optional[str] = None) -> Recommender:
         """
-        Load CLIP model for image similarity.
+        Load recommendation service with CLIP model and IKEA DataFrame.
+        
+        Args:
+            df_path: Optional custom path to DataFrame file
+            
+        Returns:
+            Recommender instance ready to use
+        """
+        clip_model = _load_clip_model()
+        ikea_df = ModelLoader._load_ikea_dataframe(df_path)
+        return Recommender(clip_model, ikea_df)
+    
+    @staticmethod
+    def load_generation_service():
+        """
+        Load generation service with pre-loaded diffusion model.
         
         Returns:
-            Loaded CLIP model
-            
-        Raises:
-            ImportError: If sentence-transformers is not installed
+            Function that generates designs: generate(original_path, crop_path, prompt) -> Image
         """
-        try:
-            model = SentenceTransformer(CLIP_MODEL_NAME)
-            return model
-        except ImportError:
-            raise ImportError(
-                "sentence-transformers not installed. "
-                "Please run: pip install sentence-transformers"
-            )
+        diffusion_model = _load_diffusion_model()
+        
+        def generate(original_image_path: str, crop_image_path: str, prompt: str):
+            """Generate design using pre-loaded diffusion model."""
+            return generate_design(original_image_path, crop_image_path, prompt, diffusion_model)
+        
+        return generate
+    
+    # ========================================================================
+    # Internal Helper Methods (Not for backend use)
+    # ========================================================================
     
     @staticmethod
-    def load_ikea_dataframe(df_path: Optional[str] = None) -> pd.DataFrame:
+    def _load_ikea_dataframe(df_path: Optional[str] = None) -> pd.DataFrame:
         """
         Load IKEA product DataFrame with embeddings.
         
@@ -103,8 +111,12 @@ class ModelLoader:
             ]
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
-                print(f"⚠️ Warning: DataFrame missing columns: {missing_cols}")
+                print(f"Warning: DataFrame missing columns: {missing_cols}")
             
             return df
         except Exception as e:
-            raise ValueError(f"Failed to load IKEA DataFrame: {e}")
+            raise ValueError(f"Failed to load IKEA DataFrame: {e}") from e
+
+
+# Public API exports
+__all__ = ['ModelLoader']

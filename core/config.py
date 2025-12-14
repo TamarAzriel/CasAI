@@ -20,7 +20,6 @@ UPLOADS_DIR = APPDATA_DIR / "uploads"
 
 # Model paths
 YOLO_MODEL_PATH = PROJECT_ROOT / "yolo-train" / "best.onnx"
-YOLO_MODEL_PATH_PT = PROJECT_ROOT / "yolo-train" / "best.pt"
 
 # Model configuration
 CLIP_MODEL_NAME = 'clip-ViT-B-32'
@@ -75,3 +74,23 @@ def ensure_directories():
     directories = [DATA_DIR, IMAGES_DIR, APPDATA_DIR, DETECT_DIR, UPLOADS_DIR]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
+
+
+# Path utility functions
+def url_to_file_path(url_path: str, base_dir: Path = None) -> Path:
+    """
+    Convert URL path to file system path.
+    
+    Args:
+        url_path: URL path (e.g., "/appdata/detect/crop_0.jpg")
+        base_dir: Base directory to resolve relative paths (default: PROJECT_ROOT)
+        
+    Returns:
+        Path object
+    """
+    if base_dir is None:
+        base_dir = PROJECT_ROOT
+    
+    # Remove leading slash and normalize
+    clean_path = url_path.lstrip('/').replace('/', os.sep)
+    return base_dir / clean_path
