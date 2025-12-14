@@ -53,7 +53,12 @@ const Index = () => {
             onClose={() => { setShowResults(false); setRealRecommendations([]); }}
           />
         ) : (
-          <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: showSplash ? 0 : 1 }} transition={{ duration: 0.6 }}>
+          <motion.div 
+            key="home" 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            transition={{ duration: 0.6 }}
+          >
             <HomeScreen onStartProject={() => setIsModalOpen(true)} />
           </motion.div>
         )}
@@ -61,8 +66,18 @@ const Index = () => {
 
       <AnimatePresence>
         {showSplash && (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-background" exit={{ opacity: 0 }}>
-            <motion.h1 className="font-display text-6xl" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>CasAI</motion.h1>
+          <motion.div 
+            className="fixed inset-0 z-50 flex items-center justify-center glass-crystal" 
+            exit={{ opacity: 0, transition: { duration: 0.8 } }}
+          >
+            <motion.h1 
+              // הוספתי כאן את text-white
+              className="font-display text-6xl text-white" 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }}
+            >
+              CasAI
+            </motion.h1>
           </motion.div>
         )}
       </AnimatePresence>
