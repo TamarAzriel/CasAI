@@ -5,7 +5,6 @@ import heroImage from "@/assets/hero-interior.jpg";
 // כתובת השרת
 const API_BASE_URL = "http://127.0.0.1:5000";
 
-// --- ממשק המוצר (מותאם לנתונים מ-Index.tsx) ---
 export interface Product {
   id: string | number;
   item_name: string;   
@@ -74,13 +73,13 @@ const ProjectReveal = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.6 }}
         >
-          {/* כפתור חזרה */}
+          {/* כפתור חזרה - עודכן */}
           <button
             onClick={onClose}
             className="flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-8"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span className="font-body text-xs uppercase tracking-widest">Back to Home</span>
+            <span className="font-body text-xs uppercase tracking-widest">Back</span>
           </button>
 
           {/* חלק א: תמונת ה-AI (אם קיימת) */}
@@ -123,7 +122,7 @@ const ProjectReveal = ({
             </motion.section>
           )}
 
-          {/* חלק ב: המלצות איקאה (החלק החשוב!) */}
+          {/* חלק ב: המלצות איקאה */}
           {recommendations.length > 0 && (
             <motion.section
               className="mb-16"
@@ -140,7 +139,6 @@ const ProjectReveal = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {recommendations.map((product, index) => {
-                  // הגנה: אם אין מוצר, אל תרנדר אותו (מונע קריסה)
                   if (!product) return null;
 
                   return (
@@ -154,7 +152,6 @@ const ProjectReveal = ({
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: (showGeneratedSection ? 0.6 : 0.3) + index * 0.1, duration: 0.5 }}
                     >
-                      {/* תמונת המוצר */}
                       <div className="aspect-square overflow-hidden bg-white/5 relative">
                          {product.item_img ? (
                             <img
@@ -162,7 +159,6 @@ const ProjectReveal = ({
                               alt={product.item_name || 'Product'}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                               onError={(e) => {
-                                // במקרה של שגיאת טעינה, הסתר את התמונה או שים פלייסהולדר
                                 (e.target as HTMLImageElement).style.display = 'none'; 
                               }}
                             />
@@ -171,7 +167,6 @@ const ProjectReveal = ({
                          )}
                       </div>
 
-                      {/* פרטי המוצר */}
                       <div className="p-4">
                         {product.brand && (
                           <span className="font-body text-[10px] uppercase tracking-widest text-accent">
@@ -198,7 +193,7 @@ const ProjectReveal = ({
             </motion.section>
           )}
 
-          {/* חלק ג: קישורים חיצוניים (אם יש) */}
+          {/* חלק ג: קישורים חיצוניים */}
           {externalLinks.length > 0 && (
             <motion.section
               className="mb-12"
@@ -244,7 +239,6 @@ const ProjectReveal = ({
             </motion.section>
           )}
 
-          {/* תחתית */}
           <motion.div
             className="text-center pt-8 border-t border-white/10"
             initial={{ opacity: 0 }}
