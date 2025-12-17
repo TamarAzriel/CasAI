@@ -62,8 +62,8 @@ const Index = () => {
             recommendations={realRecommendations}
             onClose={() => { 
                 setShowResults(false); 
-                setIsModalOpen(true); // זה השינוי: פותח מחדש את המודל
-                // נשמור על ההמלצות למקרה שנרצה, או נאפס אותן - לשיקולך. כרגע לא איפסתי.
+              setRealRecommendations([]); 
+              setIsModalOpen(true);
             }}
           />
         ) : (

@@ -22,10 +22,20 @@ export interface RecommendationItem {
   score?: number; 
 }
 
-// --- 3. Interface עבור Props של הקומפוננטה (אם נרצה לייצא אותה) ---
+// --- 3. Interface עבור קישור חיצוני (Google Shopping וכו') ---
+export interface ExternalLinkItem {
+  id: string | number;
+  title: string;
+  source: string;
+  price?: string;
+  link: string;
+  image?: string;
+}
+
+// --- 4. Interface עבור Props של הקומפוננטה (אם נרצה לייצא אותה) ---
 export interface DesignRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onResults?: (data: RecommendationItem[]) => void; 
+  onResults?: (data: RecommendationItem[], extras?: { externalLinks?: ExternalLinkItem[] }) => void; 
   onImageGenerated?: (base64Image: string) => void;
 }

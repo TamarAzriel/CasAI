@@ -12,13 +12,27 @@ const Index = () => {
   // נתונים אמיתיים בלבד
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [realRecommendations, setRealRecommendations] = useState<any[]>([]);
+  const [externalLinks, setExternalLinks] = useState<any[]>([]);
+  const [generationContext, setGenerationContext] = useState<{
+    originalImagePath: string | null;
+    selectedCropUrl: string | null;
+    vision: string;
+  } | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
     return () => clearTimeout(timer);
   }, []);
 
-  const handleResultsFound = (data: any[]) => {
+  const handleResultsFound = (
+    data: any[],
+    context?: {
+      originalImagePath: string | null;
+      selectedCropUrl: string | null;
+      vision: string;
+      externalLinks?: any[];
+    }
+  ) => {
     // עיבוד התוצאות מהשרת לפורמט של האתר
     const formatted = data.map((item, i) => ({
         id: String(i),
@@ -30,6 +44,16 @@ const Index = () => {
     }));
     
     setRealRecommendations(formatted);
+    setExternalLinks(context?.externalLinks || []);
+    setGenerationContext(
+      context
+        ? {
+            originalImagePath: context.originalImagePath,
+            selectedCropUrl: context.selectedCropUrl,
+            vision: context.vision,
+          }
+        : null
+    );
     setGeneratedImage(null);
     setIsModalOpen(false);
     setShowResults(true);
@@ -38,6 +62,7 @@ const Index = () => {
   const handleImageGenerated = (base64Image: string) => {
     setGeneratedImage(base64Image);
     setRealRecommendations([]);
+    // נשארים באותו מסך, רק מוסיפים את ההדמיה למעלה
     setIsModalOpen(false);
     setShowResults(true);
   };
@@ -50,7 +75,17 @@ const Index = () => {
             key="results"
             generatedImage={generatedImage}
             recommendations={realRecommendations}
-            onClose={() => { setShowResults(false); setRealRecommendations([]); }}
+            externalLinks={externalLinks}
+            generationContext={generationContext}
+            onGeneratedImage={handleImageGenerated}
+            onClose={() => { 
+              // חזרה מההמלצות למסך העלאת התמונה (המודאל)
+              setShowResults(false); 
+              setRealRecommendations([]); 
+              setExternalLinks([]);
+              setGenerationContext(null);
+              setIsModalOpen(true);
+            }}
           />
         ) : (
           <motion.div 

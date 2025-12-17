@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, ExternalLink, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, ShoppingBag, Heart } from "lucide-react";
 import heroImage from "@/assets/hero-interior.jpg"; 
 
 // כתובת השרת
@@ -24,10 +25,18 @@ export interface ExternalLink {
   image?: string;
 }
 
+interface GenerationContext {
+  originalImagePath: string | null;
+  selectedCropUrl: string | null;
+  vision: string;
+}
+
 interface ProjectRevealProps {
   generatedImage: string | null;
   recommendations: Product[];
   externalLinks?: ExternalLink[];
+  generationContext?: GenerationContext | null;
+  onGeneratedImage?: (base64Image: string) => void;
   onClose: () => void; 
 }
 
@@ -35,9 +44,93 @@ const ProjectReveal = ({
   generatedImage,
   recommendations,
   externalLinks = [],
+  generationContext,
+  onGeneratedImage,
   onClose,
 }: ProjectRevealProps) => {
-  
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [savedItems, setSavedItems] = useState<Product[]>([]);
+
+  // Wishlist persistence (localStorage)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("casai_wishlist");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setSavedItems(parsed);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load wishlist", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("casai_wishlist", JSON.stringify(savedItems));
+    } catch (e) {
+      console.error("Failed to save wishlist", e);
+    }
+  }, [savedItems]);
+
+  const toggleSaveItem = (item: Product) => {
+    setSavedItems((current) => {
+      const exists = current.some((p) => p.item_url === item.item_url);
+      if (exists) {
+        return current.filter((p) => p.item_url !== item.item_url);
+      }
+      return [...current, item];
+    });
+  };
+
+  // סימולציית התקדמות רכה ומינימלית בזמן ההמתנה
+  useEffect(() => {
+    if (!isGenerating) {
+      setGenerationProgress(0);
+      return;
+    }
+    let current = 0;
+    const interval = setInterval(() => {
+      current = Math.min(current + 2, 90); // לא עובר 90% עד שהשרת מסיים
+      setGenerationProgress(current);
+    }, 200);
+    return () => clearInterval(interval);
+  }, [isGenerating]);
+
+  const handleGeneratePreview = async () => {
+    if (!generationContext || isGenerating) return;
+    const { originalImagePath, selectedCropUrl, vision } = generationContext;
+    if (!originalImagePath || !selectedCropUrl || !vision.trim()) return;
+
+    try {
+      setIsGenerating(true);
+      const formData = new FormData();
+      formData.append("original_image_path", originalImagePath);
+      formData.append("selected_crop_url", selectedCropUrl);
+      formData.append("prompt", vision);
+
+      const res = await fetch(`${API_BASE_URL}/generate_design`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error("Generation failed");
+      }
+
+      const data = await res.json();
+      if (data.generated_image && onGeneratedImage) {
+        onGeneratedImage(data.generated_image);
+      }
+    } catch (error) {
+      console.error("Generate design failed", error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleDownload = () => {
     if (!generatedImage) return;
     const link = document.createElement("a");
@@ -94,11 +187,11 @@ const ProjectReveal = ({
                 Your Vision, Realized
               </h1>
 
-              <div className="relative aspect-[16/9] md:aspect-[21/9] overflow-hidden border border-white/20">
+              <div className="relative aspect-[16/9] md:aspect-[21/9] overflow-hidden border border-white/20 bg-black">
                 <img
                   src={`data:image/jpeg;base64,${generatedImage}`}
                   alt="AI Generated Room Design"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
                 <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-black/70 via-black/30 to-transparent">
                   <span className="font-body text-xs uppercase tracking-widest text-white/70">
@@ -122,6 +215,50 @@ const ProjectReveal = ({
             </motion.section>
           )}
 
+          {/* חלק ביניים: הזמנה להדמיה לפני ההמלצות - גרסה נקייה ומינימלית */}
+          {!showGeneratedSection && generationContext && (
+            <motion.section
+              className="mb-10"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25, duration: 0.4 }}
+            >
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-t border-white/10 pt-6">
+                <div className="space-y-1">
+                  <p className="font-body text-[11px] uppercase tracking-[0.22em] text-white/45">
+                    Curious how this could look as a full scene?
+                  </p>
+                  <p className="font-body text-sm text-white/70 max-w-md">
+                    Generate a clean AI visualization of your space using this piece and your description.
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <button
+                    onClick={handleGeneratePreview}
+                    disabled={isGenerating}
+                    className="px-7 py-3 text-[11px] tracking-[0.2em] uppercase font-light border border-white/40 text-white bg-transparent hover:bg-white/10 transition disabled:opacity-60"
+                  >
+                    {isGenerating ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="font-body text-[11px] tracking-[0.18em] uppercase text-white/70">
+                          Rendering {generationProgress}%
+                        </span>
+                        <div className="w-24 h-px bg-white/15 overflow-hidden">
+                          <div
+                            className="h-full bg-white/80 transition-all duration-200"
+                            style={{ width: `${generationProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      "Generate Inspiration"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.section>
+          )}
+
           {/* חלק ב: המלצות איקאה */}
           {recommendations.length > 0 && (
             <motion.section
@@ -141,6 +278,8 @@ const ProjectReveal = ({
                 {recommendations.map((product, index) => {
                   if (!product) return null;
 
+                  const isSaved = savedItems.some((p) => p.item_url === product.item_url);
+
                   return (
                     <motion.a
                       key={index}
@@ -153,6 +292,22 @@ const ProjectReveal = ({
                       transition={{ delay: (showGeneratedSection ? 0.6 : 0.3) + index * 0.1, duration: 0.5 }}
                     >
                       <div className="aspect-square overflow-hidden bg-white/5 relative">
+                        {/* Wishlist heart */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleSaveItem(product);
+                          }}
+                          className="absolute top-3 right-3 z-10 rounded-full bg-black/40 p-2 hover:bg-black/70 transition"
+                        >
+                          <Heart
+                            className={`w-4 h-4 ${
+                              isSaved ? "text-accent fill-accent" : "text-white/70"
+                            }`}
+                          />
+                        </button>
                          {product.item_img ? (
                             <img
                               src={`${API_BASE_URL}/${product.item_img}`}
@@ -201,11 +356,16 @@ const ProjectReveal = ({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.7, duration: 0.7 }}
             >
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-12 h-px bg-accent" />
-                <h2 className="font-display text-2xl md:text-3xl font-light text-white">
-                  Shop The Look
-                </h2>
+              <div className="flex flex-col gap-2 mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-px bg-accent" />
+                  <h2 className="font-display text-2xl md:text-3xl font-light text-white">
+                    More Options
+                  </h2>
+                </div>
+                <p className="font-body text-[11px] uppercase tracking-[0.18em] text-white/50">
+                  Additional options that may fit your style from Google Shopping
+                </p>
               </div>
               <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-2 px-2">
                 {externalLinks.map((item, index) => (
@@ -234,6 +394,51 @@ const ProjectReveal = ({
                       </div>
                     </div>
                   </motion.a>
+                ))}
+              </div>
+            </motion.section>
+          )}
+
+          {/* חלק ד: Wishlist שמור */}
+          {savedItems.length > 0 && (
+            <motion.section
+              className="mt-4 mb-8"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+            >
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-8 h-px bg-accent" />
+                <h3 className="font-display text-lg font-light text-white">
+                  Saved for later
+                </h3>
+              </div>
+
+              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+                {savedItems.map((item) => (
+                  <a
+                    key={item.item_url}
+                    href={item.item_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-shrink-0 w-40 glass-crystal p-3 hover:bg-white/10 transition-all duration-200"
+                  >
+                    <div className="aspect-square mb-2 overflow-hidden bg-white/5">
+                      {item.item_img && (
+                        <img
+                          src={`${API_BASE_URL}/${item.item_img}`}
+                          alt={item.item_name}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                    </div>
+                    <p className="font-display text-xs text-white line-clamp-2 mb-1">
+                      {item.item_name}
+                    </p>
+                    <p className="font-body text-[11px] text-white/70">
+                      {item.item_price}
+                    </p>
+                  </a>
                 ))}
               </div>
             </motion.section>

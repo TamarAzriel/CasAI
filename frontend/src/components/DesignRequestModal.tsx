@@ -21,6 +21,7 @@ interface ExtendedModalProps extends Omit<DesignRequestModalProps, 'onResults'> 
         originalImagePath: string | null;
         selectedCropUrl: string | null;
         vision: string;
+        externalLinks?: any[];
     }) => void;
 }
 
@@ -55,12 +56,13 @@ const DesignRequestModal = ({ isOpen, onClose, onResults }: ExtendedModalProps) 
             const items: DetectionItem[] = await res.json();
             setDetectedItems(items);
             
-            const path = `uploads/${file.name}`;
+            // נתיב לקובץ ששמור בצד השרת (appdata/uploads/filename.jpg)
+            const path = `appdata/uploads/${file.name}`;
             setOriginalImagePath(path); 
 
             if (items.length > 0) {
                 setSelectedItemIndex(0);
-                toast({ title: "Items Detected", description: `Found ${items.length} items. Select one to proceed.` });
+                // הודעת הטוסט הועלתה כי הייתה גדולה ומפריעה ויזואלית
             } else {
                 toast({ title: "No Items", description: "No furniture detected.", variant: "destructive" });
             }
@@ -116,13 +118,37 @@ const DesignRequestModal = ({ isOpen, onClose, onResults }: ExtendedModalProps) 
             if (!res.ok) throw new Error("Search failed");
 
             const data: RecommendationItem[] = await res.json();
+
+            // בקשת קישורים מגוגל (Shopping) 
+            // נבנה שאילתא: קודם מהטקסט של המשתמש, ואם ריק - מהמחלקה של הפריט שזוהה
+            let externalLinks: any[] = [];
+            let googleQuery = vision.trim();
+            if (!googleQuery && selectedItem) {
+                googleQuery = selectedItem.class;
+            }
+
+            if (googleQuery) {
+                try {
+                    const googleRes = await fetch(`${API_BASE_URL}/google_search`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ query: googleQuery })
+                    });
+                    if (googleRes.ok) {
+                        externalLinks = await googleRes.json();
+                    }
+                } catch (googleErr) {
+                    console.error("Google search failed", googleErr);
+                }
+            }
             
-            // מעבירים את התוצאות + המידע שנצטרך למסך הבא (בשביל ה-Redesign העתידי)
+            // מעבירים את התוצאות + המידע שנצטרך למסך הבא (כולל קישורי גוגל)
             if (onResults) {
                 onResults(data, {
                     originalImagePath: originalImagePath,
                     selectedCropUrl: selectedItem?.crop_url || null,
-                    vision: vision
+                    vision: vision,
+                    externalLinks,
                 });
             }
             onClose();
@@ -197,7 +223,7 @@ const DesignRequestModal = ({ isOpen, onClose, onResults }: ExtendedModalProps) 
                                                 <img
                                                     src={uploadedImage}
                                                     alt="Uploaded room"
-                                                    className="w-full h-full object-cover"
+                                                    className="w-full h-full object-contain"
                                                 />
                                                 <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                                                     <span className="font-body text-xs uppercase tracking-widest text-white">
@@ -251,13 +277,13 @@ const DesignRequestModal = ({ isOpen, onClose, onResults }: ExtendedModalProps) 
                                 )}
 
                                 {/* Vision Input */}
-                                <div className="mb-8">
+                                <div className="mb-8 mt-4">
                                     <textarea
                                         value={vision}
                                         onChange={(e) => setVision(e.target.value)}
-                                        placeholder="Describe item style or name..."
+                                        placeholder="Describe item style or name (optional)..."
                                         rows={3}
-                                        className="input-editorial w-full resize-none font-body text-sm"
+                                        className="input-editorial w-full resize-none font-body text-sm py-1"
                                     />
                                 </div>
 

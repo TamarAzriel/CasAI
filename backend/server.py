@@ -16,8 +16,13 @@ import traceback
 import pandas as pd
 from io import BytesIO
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports (project root)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+# Google Shopping helper (now importable because PROJECT_ROOT is on sys.path)
+from google_search import search_google_shopping
 
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
@@ -266,6 +271,27 @@ def recommend_text() -> Union[Response, tuple[Response, int]]:
         print(f"🚨 RECOMMENDATION ERROR: {e}")
         traceback.print_exc()
         return jsonify({"error": "Recommendation failed"}), 500
+
+
+@app.post("/google_search")
+def google_search_endpoint() -> Union[Response, tuple[Response, int]]:
+    """Proxy endpoint to fetch Google Shopping links using Serper.dev."""
+    try:
+        data = request.json or {}
+        query = data.get("query", "").strip()
+        if not query:
+            return jsonify({"error": "query field is required"}), 400
+
+        results = search_google_shopping(query)
+        # ensure each result has an id for the frontend
+        for idx, item in enumerate(results):
+            if "id" not in item:
+                item["id"] = idx
+        return jsonify(results)
+    except Exception as e:
+        print(f"🚨 GOOGLE SEARCH ERROR: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Google search failed"}), 500
 
 
 # ============================================================================
