@@ -21,8 +21,6 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# Google Shopping helper (now importable because PROJECT_ROOT is on sys.path)
-from google_search import search_google_shopping
 
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader

@@ -17,26 +17,13 @@ CSV_FILE = DATA_DIR / "ikea_il.csv"
 APPDATA_DIR = PROJECT_ROOT / "appdata"
 DETECT_DIR = APPDATA_DIR / "detect"
 UPLOADS_DIR = APPDATA_DIR / "uploads"
-
-# Model paths
-YOLO_MODEL_PATH = PROJECT_ROOT / "yolo-train" / "best.onnx"
-
 # Model configuration
 CLIP_MODEL_NAME = 'clip-ViT-B-32'
 YOLO_CONF_THRESHOLD = 0.25
+YOLO_MODEL_NAME = 'yolo11s.pt'  # Raw YOLO11s model
 
 # Target furniture classes
-TARGET_CLASSES = {'Bed', 'Dresser', 'Chair', 'Sofa', 'Lamp', 'Table'}
-
-# YOLO to app class mapping
-YOLO_TO_APP_CLASS_MAP = {
-    'bed': 'Bed',
-    'wardrobe': 'Dresser',
-    'chair': 'Chair',
-    'sofa': 'Sofa',
-    'lamp': 'Lamp',
-    'table': 'Table'
-}
+TARGET_CLASSES = {'bed', 'dresser', 'chair', 'sofa', 'lamp', 'table'}
 
 # Style definitions for furniture recommendations
 STYLE_DEFINITIONS: Dict[str, str] = {
@@ -62,11 +49,6 @@ STYLE_DEFINITIONS: Dict[str, str] = {
 def get_style_description(style_name: str) -> str:
     """Get style description by name, or return the input if not found."""
     return STYLE_DEFINITIONS.get(style_name.lower(), style_name)
-
-
-def map_yolo_class_to_app_class(yolo_class_name: str) -> str:
-    """Map YOLO class name to application class name."""
-    return YOLO_TO_APP_CLASS_MAP.get(yolo_class_name.lower(), yolo_class_name)
 
 
 def ensure_directories():

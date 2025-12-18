@@ -7,10 +7,8 @@ from PIL import Image
 from ultralytics import YOLO
 
 from .config import (
-    TARGET_CLASSES,
     YOLO_CONF_THRESHOLD,
-    YOLO_MODEL_PATH,
-    map_yolo_class_to_app_class
+    YOLO_MODEL_NAME
 )
 
 
@@ -94,13 +92,8 @@ class YOLODetectionService:
                 if yolo_class_name is None:
                     continue
                 
-                app_class_name = map_yolo_class_to_app_class(yolo_class_name)
-                
-                if app_class_name not in TARGET_CLASSES:
-                    continue
-                
                 # Save cropped image
-                file_name = f"{base_name}_{counter}_{app_class_name}.jpg"
+                file_name = f"{base_name}_{counter}_{yolo_class_name}.jpg"
                 save_path = os.path.join(save_dir, file_name)
                 
                 crop_img = pil_image.crop(tuple(box.tolist()))
@@ -112,7 +105,7 @@ class YOLODetectionService:
                 
                 detected_photos.append({
                     'File_name': file_name,
-                    'class': app_class_name,
+                    'class': yolo_class_name,
                     'path': save_path,
                     'bbox': box.tolist(),
                     'confidence': confidence,
@@ -123,30 +116,24 @@ class YOLODetectionService:
         return detected_photos
 
 
-def load_yolo_model(model_path: Optional[str] = None) -> YOLO:
+def load_yolo_model(model_name: Optional[str] = None) -> YOLO:
     """
     Load YOLO model for furniture detection.
     
     Args:
-        model_path: Optional custom path to YOLO model
+        model_path: Optional custom path to YOLO model. If None, loads model from config.
         
     Returns:
         Loaded YOLO model
         
     Raises:
-        FileNotFoundError: If model file doesn't exist
+        FileNotFoundError: If custom model_path is provided but doesn't exist
     """
+    if model_name:
+        if not os.path.exists(model_name):
+            raise FileNotFoundError(f"YOLO model not found at {model_name}")
+        return YOLO(model_name, task='detect')
     
-    if model_path:
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"YOLO model not found at {model_path}")
-        return YOLO(model_path, task='detect')
-    
-    # Try .onnx first, then .pt
-    if os.path.exists(YOLO_MODEL_PATH):
-        return YOLO(str(YOLO_MODEL_PATH), task='detect')
-    else:
-        raise FileNotFoundError(
-            f"YOLO model not found at {YOLO_MODEL_PATH}"
-        )
+    # Load raw YOLO model from config (will download automatically if not cached)
+    return YOLO(YOLO_MODEL_NAME, task='detect')
 
