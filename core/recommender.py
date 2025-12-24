@@ -12,6 +12,8 @@ import urllib.parse
 from dotenv import load_dotenv 
 
 from .config import get_style_description
+import google.generativeai as genai # pyright: ignore[reportMissingImports]
+from PIL import Image
 
 
 class Recommender:
@@ -27,6 +29,15 @@ class Recommender:
         """
         self.model = model
         self.embeddings_df = self._prepare_embeddings(embeddings_df)
+        
+        # הגדרת מפתח ה-API של גוגל
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        else:
+            print("⚠️ GEMINI_API_KEY not found in environment variables.")
+            self.gemini_model = None
 
          # טוען את המשתנים מהקובץ .env
         load_dotenv()
@@ -225,98 +236,39 @@ def search_google_shopping(query):
     
     # בתוך core/recommender.py
 
-    def get_style_advice(self, user_image_path: str, user_text: str) -> Dict[str, Any]:
+    def chat_with_designer(self, image_path, messages):
         """
-        AI Stylist Logic: Returns both a friendly advice paragraph and a list of items.
+        ניהול שיחה עם Gemini Pro Vision (חינם).
         """
-        if not self.openai_client:
-            raise ValueError("OpenAI API Key is missing.")
+        if not self.gemini_model:
+            return "Error: GEMINI_API_KEY is missing."
 
-        base64_image = self._encode_image_to_base64(user_image_path)
-        
-        # --- השינוי העיקרי: הפרומפט מבקש "שיח" ---
-        prompt = f"""
-        You are a warm, professional interior designer named "CasAI". 
-        The user sent a photo of their room and said: "{user_text}".
-        
-        Your Goal:
-        1. Analyze the room's atmosphere and the user's request.
-        2. Write a short, friendly paragraph (2-3 sentences) explaining what is missing and why. Speak directly to the user (e.g., "I noticed your room has... so I recommend...").
-        3. Suggest exactly 3 physical items to buy that solve the problem.
-        
-        Output Format (JSON ONLY):
-        {{
-            "advice": "Your friendly explanation here...",
-            "items": [
-                {{ "item_name": "...", "reason": "...", "search_query": "..." }},
-                ...
-            ]
-        }}
-        """
-
-        print("🤖 Asking GPT-4o for advice + items...")
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ],
-                }
-            ],
-            max_tokens=600
-        )
-
-        content = response.choices[0].message.content
-        clean_json = content.replace("```json", "").replace("```", "").strip()
-        
         try:
-            data = json.loads(clean_json)
-        except json.JSONDecodeError:
-            # Fallback למקרה של שגיאה בפורמט
-            data = {"advice": "Here are some items that might help!", "items": []}
+            # טעינת התמונה
+            img = Image.open(image_path)
 
-        advice_text = data.get("advice", "")
-        suggestions = data.get("items", [])
-
-        print(f"💡 Designer Advice: {advice_text}")
-
-        final_items = []
-
-        # (לוגיקת החיפוש הקיימת נשארת אותו דבר)
-        for item in suggestions:
-            query_vec = self.model.encode(item['search_query'])
-            product_vectors = np.array([v.flatten() for v in self.embeddings_df['vector'].values])
-            sims = self._calculate_similarities(query_vec, product_vectors)
-            best_idx = np.argmax(sims)
-            best_score = sims[best_idx]
+            # בניית הפרומפט
+            # Gemini עובד הכי טוב כשנותנים לו את התמונה ואת כל ההיסטוריה כטקסט רציף או כרשימה
             
-            result_item = {
-                "ai_suggestion": item['item_name'],
-                "ai_reason": item['reason'],
-                "search_query": item['search_query'],
-                "source": "unknown"
-            }
+            prompt_parts = [
+                "You are CasAI, an expert interior designer. Analyze the image and answer the user's questions.",
+                "Be helpful, concise, and professional. If the user asks in Hebrew, answer in Hebrew.",
+                img # התמונה עצמה נכנסת כחלק מהפרומפט!
+            ]
 
-            if best_score > 0.24:
-                row = self.embeddings_df.iloc[best_idx]
-                result_item.update({
-                    "source": "local_ikea",
-                    "item_name": row.get('item_name', 'Unknown'),
-                    "item_price": row.get('item_price', ''),
-                    "item_url": row.get('product_link', ''),
-                    "item_img": row.get('image_file', ''),
-                    "similarity": float(best_score)
-                })
-            else:
-                result_item["source"] = "google_search"
+            # הוספת היסטוריית השיחה לפרומפט כדי שיהיה הקשר
+            history_text = "\nChat History:\n"
+            for msg in messages:
+                role = "User" if msg['role'] == "user" else "CasAI"
+                history_text += f"{role}: {msg['content']}\n"
             
-            final_items.append(result_item)
+            prompt_parts.append(history_text)
+            prompt_parts.append("\nCasAI (Your response):")
 
-        # מחזירים אובייקט שמכיל גם את העצה וגם את הפריטים
-        return {
-            "advice": advice_text,
-            "recommendations": final_items
-        }
+            # שליחה למודל
+            response = self.gemini_model.generate_content(prompt_parts)
+            return response.text
+
+        except Exception as e:
+            print(f"Gemini Error: {e}")
+            return "מצטערת, הייתה בעיה בתקשורת עם המעצבת. נסה שוב."
