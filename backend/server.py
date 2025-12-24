@@ -6,6 +6,10 @@ This server provides REST API endpoints for:
 - Design generation (Diffusion inpainting)
 """
 
+# Fix SSL certificate verification issues
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
 from typing import Union
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
@@ -15,11 +19,17 @@ import base64
 import traceback
 import pandas as pd
 from io import BytesIO
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add parent directory to path for imports (project root)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
+
+from core.recommender import search_google_shopping
 
 
 # Only import from core.models - this is the single entry point
@@ -34,7 +44,15 @@ from core.config import (
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+
+# Configure CORS properly - allow all origins for development
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Ensure required directories exist
 ensure_directories()
@@ -43,14 +61,16 @@ ensure_directories()
 try:
     detection_service = ModelLoader.load_detection_service()
     recommendation_service = ModelLoader.load_recommendation_service()
-    generation_service = ModelLoader.load_generation_service()
-    print("All services loaded successfully.")
+    print("Detection and recommendation services loaded successfully.")
 except Exception as e:
-    print(f"CRITICAL ERROR: Failed to load services. Error: {e}")
+    print(f"WARNING: Failed to load some services. Error: {e}")
     traceback.print_exc()
     detection_service = None
     recommendation_service = None
-    generation_service = None
+
+# Skip generation service for now to speed up startup
+generation_service = None
+print("Generation service skipped (not required for chat feature).")
 
 
 # ============================================================================
@@ -113,6 +133,46 @@ def detect() -> Union[Response, tuple[Response, int]]:
         print(f"🚨 DETECTION ERROR: {e}")
         traceback.print_exc()
         return jsonify({"error": "Detection failed"}), 500
+    
+@app.post("/api/chat")
+def chat_endpoint():
+    """Endpoint לצ'אט עם Gemini"""
+    
+    # 1. טיפול בתמונה
+    image_filename = request.form.get("image_filename")
+    save_path = None
+    
+    if "image" in request.files:
+        img = request.files["image"]
+        image_filename = f"chat_{img.filename}" 
+        save_path = UPLOADS_DIR / image_filename
+        img.save(str(save_path))
+    elif image_filename:
+        save_path = UPLOADS_DIR / image_filename
+    else:
+        return jsonify({"error": "No image provided"}), 400
+
+    # 2. קבלת ההודעות
+    import json
+    messages_str = request.form.get("messages", "[]")
+    try:
+        messages = json.loads(messages_str)
+    except:
+        messages = []
+
+    if recommendation_service is None:
+        return jsonify({"error": "Service unavailable"}), 500
+
+    # 3. שליחה ל-Gemini
+    ai_response = recommendation_service.chat_with_designer(
+        image_path=str(save_path),
+        messages=messages
+    )
+    
+    return jsonify({
+        "response": ai_response,
+        "image_filename": image_filename 
+    })
 
 
 @app.post("/generate_design")

@@ -3,10 +3,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import HomeScreen from "@/components/HomeScreen";
 import DesignRequestModal from "@/components/DesignRequestModal";
 import ProjectReveal from "@/components/ProjectReveal";
+import StylingChat from "@/components/StylingChat";
 
 const Index = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [showResults, setShowResults] = useState(false);
   
   // נתונים אמיתיים בלבד
@@ -94,10 +96,19 @@ const Index = () => {
             animate={{ opacity: 1 }} 
             transition={{ duration: 0.6 }}
           >
-            <HomeScreen onStartProject={() => setIsModalOpen(true)} />
+            <HomeScreen 
+              onStartProject={() => setIsModalOpen(true)}
+              onOpenChat={() => setIsChatOpen(true)}
+            />
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* הרכיב החדש של הצ'אט */}
+      <StylingChat 
+         isOpen={isChatOpen} 
+         onClose={() => setIsChatOpen(false)}
+      />
 
       <AnimatePresence>
         {showSplash && (

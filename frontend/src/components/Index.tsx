@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import HomeScreen from "@/components/HomeScreen";
 import DesignRequestModal from "@/components/DesignRequestModal";
 import ProjectReveal from "@/components/ProjectReveal";
-
+import StylingChat from "@/components/StylingChat";
 // נניח שיש לנו סוג עבור הקונטקסט
 interface SearchContext {
     originalImagePath: string | null;
@@ -14,7 +14,10 @@ interface SearchContext {
 const Index = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false); 
   const [showResults, setShowResults] = useState(false);
+  
+  console.log('Index state - showResults:', showResults, 'isChatOpen:', isChatOpen, 'isModalOpen:', isModalOpen); // DEBUG
   
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [realRecommendations, setRealRecommendations] = useState<any[]>([]);
@@ -52,8 +55,18 @@ const Index = () => {
     setShowResults(true);
   };
 
+  const handleOpenChat = () => {
+    console.log('handleOpenChat called');
+    setIsChatOpen(true);
+  };
+
+  const handleStartProject = () => {
+    console.log('handleStartProject called');
+    setIsModalOpen(true);
+  };
+
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-screen bg-black">
       <AnimatePresence mode="wait">
         {showResults ? (
           <ProjectReveal 
@@ -73,10 +86,22 @@ const Index = () => {
             animate={{ opacity: 1 }} 
             transition={{ duration: 0.6 }}
           >
-            <HomeScreen onStartProject={() => setIsModalOpen(true)} />
+            <HomeScreen 
+              onStartProject={handleStartProject} 
+              onOpenChat={handleOpenChat}
+            />
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* הרכיב החדש של הצ'אט */}
+      <StylingChat 
+         isOpen={isChatOpen} 
+         onClose={() => {
+           console.log('Closing chat, setting isChatOpen to false');
+           setIsChatOpen(false);
+         }}
+      />
 
       <AnimatePresence>
         {showSplash && (
@@ -99,8 +124,6 @@ const Index = () => {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onResults={handleResultsFound} 
-        // הסרתי את onImageGenerated כי DesignRequestModal החדש שלך (מהשלב הקודם) לא משתמש בו,
-        // אבל אם עדיין יש לך אותו שם, אפשר להשאיר.
       />
     </div>
   );
