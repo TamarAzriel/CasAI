@@ -20,17 +20,23 @@ import traceback
 import pandas as pd
 from io import BytesIO
 from dotenv import load_dotenv
+from PIL import Image
+import time
+from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Add parent directory to path for imports (project root)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# שורה 26 המעודכנת
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 from core.recommender import search_google_shopping
 
+GENERATED_DIR = PROJECT_ROOT / "appdata" / "generated"
+os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
@@ -68,9 +74,14 @@ except Exception as e:
     detection_service = None
     recommendation_service = None
 
-# Skip generation service for now to speed up startup
-generation_service = None
-print("Generation service skipped (not required for chat feature).")
+# Load generation service for design generation
+try:
+    generation_service = ModelLoader.load_generation_service()
+    print("✅ Generation service loaded successfully.")
+except Exception as e:
+    print(f"⚠️  Generation service failed to load: {e}")
+    traceback.print_exc()
+    generation_service = None
 
 
 # ============================================================================
@@ -88,6 +99,10 @@ def serve_ikea_images(filename: str) -> Response:
     """Serve IKEA product images."""
     return send_from_directory(str(IMAGES_DIR), filename)
 
+@app.route('/appdata/generated/<path:filename>')
+def serve_generated_files(filename):
+    """מגיש את התמונות שה-AI יצר"""
+    return send_from_directory(str(GENERATED_DIR), filename)
 
 # ============================================================================
 # API Endpoints
@@ -175,9 +190,9 @@ def chat_endpoint():
     })
 
 
-@app.post("/generate_design")
+@app.post("/generate_new_design")
 def generate_new_design() -> Union[Response, tuple[Response, int]]:
-    """Generate new furniture design using diffusion inpainting."""
+    """Generate new furniture design and save it as a file on the server."""
     if generation_service is None:
         return jsonify({"error": "Generation service not available"}), 500
     
@@ -186,38 +201,87 @@ def generate_new_design() -> Union[Response, tuple[Response, int]]:
     prompt = request.form.get("prompt", "")
     
     if not original_image_path or not prompt or not selected_crop_url:
-        return jsonify({"error": "Missing required fields: original_image_path, selected_crop_url, prompt"}), 400
+        return jsonify({"error": "Missing required fields"}), 400
     
     try:
-        # Convert URL to file path
         crop_path = url_to_file_path(selected_crop_url)
         
-        # Verify files exist
-        if not os.path.exists(original_image_path):
-            return jsonify({"error": f"Original image not found: {original_image_path}"}), 404
-        
-        if not crop_path.exists():
-            return jsonify({"error": f"Crop image not found: {crop_path}"}), 404
-        
-        # Generate design
-        generated_image = generation_service(
+        # 1. קריאה לשירות היצירה (גמני)
+        raw_generated_image = generation_service(
             original_image_path,
             str(crop_path),
             prompt
         )
         
-        if generated_image is None:
+        if raw_generated_image is None:
             return jsonify({"error": "Generation failed to produce an image"}), 500
         
-        # Convert to base64
+        # 2. המרה בטוחה ל-PIL Image
+        if hasattr(raw_generated_image, 'convert'):
+            final_img = raw_generated_image.convert("RGB")
+        else:
+            from PIL import Image
+            final_img = Image.fromarray(raw_generated_image).convert("RGB")
+        
+        # 3. יצירת שם קובץ ייחודי (לפי זמן) ושמירה לדיסק
+        filename = f"design_{int(time.time())}.jpg"
+        save_path = os.path.join(GENERATED_DIR, filename)
+        
+        # שמירה פיזית בתיקיית appdata/generated
+        final_img.save(save_path, "JPEG", quality=95)
+        
+        # 4. החזרת הכתובת (URL) שדרכה React יוכל לגשת לתמונה
+        image_url = f"/appdata/generated/{filename}"
+        
+        print(f"✅ Image saved successfully: {save_path}")
+        return jsonify({"generated_image_url": image_url})
+        
+    except Exception as e:
+        print(f"🚨 GENERATION ERROR: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Image generation failed"}), 500
+
+@app.post("/generate_from_recommendation")
+def generate_from_recommendation() -> Union[Response, tuple[Response, int]]:
+    """Generate furniture design based on recommended product image."""
+    if generation_service is None:
+        return jsonify({"error": "Generation service not available"}), 500
+    
+    original_image_path = request.form.get("original_image_path", "")
+    selected_crop_url = request.form.get("selected_crop_url", "")
+    recommendation_image_url = request.form.get("recommendation_image_url", "")
+    item_name = request.form.get("item_name", "furniture")
+    
+    try:
+        crop_path = url_to_file_path(selected_crop_url)
+        rec_path = url_to_file_path(recommendation_image_url)
+        
+        # יצירת העיצוב
+        raw_generated_image = generation_service(
+            original_image_path,
+            str(crop_path),
+            str(rec_path),
+            item_name=item_name
+        )
+        
+        if raw_generated_image is None:
+            return jsonify({"error": "Generation failed to produce an image"}), 500
+        
+        # --- התיקון כאן: שימוש בשם משתנה שונה מ-'Image' כדי למנוע התנגשות ---
+        if hasattr(raw_generated_image, 'convert'):
+            final_img = raw_generated_image.convert("RGB")
+        else:
+            final_img = Image.fromarray(raw_generated_image).convert("RGB")
+        
         buffered = BytesIO()
-        generated_image.save(buffered, format="JPEG")
+        # עכשיו ה-format="JPEG" יעבוד כי final_img הוא בוודאות אובייקט Pillow
+        final_img.save(buffered, format="JPEG", quality=90)
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
         
         return jsonify({"generated_image": img_str})
         
     except Exception as e:
-        print(f"🚨 GENERATION ERROR: {e}")
+        print(f"🚨 GENERATION FROM RECOMMENDATION ERROR: {e}")
         traceback.print_exc()
         return jsonify({"error": "Image generation failed"}), 500
 

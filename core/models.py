@@ -12,7 +12,7 @@ import pandas as pd
 from .config import EMBEDDINGS_FILE
 from .clip import load_clip_model as _load_clip_model
 from .yolo import load_yolo_model as _load_yolo_model, YOLODetectionService
-from .diffusion import load_diffusion_model as _load_diffusion_model, generate_design
+from .diffusion import generate_design
 from .recommender import Recommender
 
 
@@ -58,16 +58,38 @@ class ModelLoader:
     @staticmethod
     def load_generation_service():
         """
-        Load generation service with pre-loaded diffusion model.
+        Load generation service using Gemini 2.5 Flash API.
         
         Returns:
-            Function that generates designs: generate(original_path, crop_path, prompt) -> Image
+            Function that generates designs: generate(original_path, crop_path, prompt_or_rec_path, item_name) -> Image
         """
-        diffusion_model = _load_diffusion_model()
-        
-        def generate(original_image_path: str, crop_image_path: str, prompt: str):
-            """Generate design using pre-loaded diffusion model."""
-            return generate_design(original_image_path, crop_image_path, prompt, diffusion_model)
+        def generate(original_image_path: str, crop_image_path: str, prompt_or_rec_path: str = None, item_name: str = "furniture"):
+            """
+            Generate design using Google Gemini 2.5 Flash API.
+            
+            Args:
+                original_image_path: Path to original room image
+                crop_image_path: Path to cropped furniture
+                prompt_or_rec_path: Either text prompt or path to recommendation image
+                item_name: Name of furniture item (for recommendation mode)
+            """
+            # Check if prompt_or_rec_path is a file path (recommendation mode) or text (prompt mode)
+            import os
+            if prompt_or_rec_path and os.path.exists(prompt_or_rec_path):
+                # Recommendation mode - pass as recommendation_image_path
+                return generate_design(
+                    original_image_path, 
+                    crop_image_path, 
+                    recommendation_image_path=prompt_or_rec_path,
+                    item_name=item_name
+                )
+            else:
+                # Prompt mode - pass as prompt
+                return generate_design(
+                    original_image_path, 
+                    crop_image_path, 
+                    prompt=prompt_or_rec_path or "furniture"
+                )
         
         return generate
     

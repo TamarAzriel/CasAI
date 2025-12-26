@@ -1,92 +1,115 @@
-"""Diffusion model for furniture design generation using inpainting."""
+"""Furniture design generation using Google Gemini 2.5 Flash API."""
 
 import os
-# Set environment variable to fix download issues
-os.environ["HF_HUB_DISABLE_SSL_VERIFY"] = "1"
-
+import io
 from typing import Optional
+from google.genai import types
+from google import genai
 from PIL import Image
-import torch
-from diffusers import StableDiffusionInpaintPipeline, LCMScheduler, AutoencoderTiny
+from dotenv import load_dotenv
 
-def create_mask_from_crop(
-    original_image: Image.Image,
-    crop_image_path: str,
-    crop_bbox: Optional[tuple] = None
-) -> Image.Image:
-    """
-    Create a mask for inpainting from a crop image.
-    
-    The mask will cover the area where the crop was taken from in the original image.
-    If crop_bbox is provided, uses that. Otherwise, attempts to find the crop location
-    by matching the crop image within the original.
-    
-    Args:
-        original_image: PIL Image of the original full image
-        crop_image_path: Path to the cropped image
-        crop_bbox: Optional (x1, y1, x2, y2) bounding box coordinates
-        
-    Returns:
-        PIL Image mask (L mode, 0-255) where white areas will be inpainted
-    """
-    crop_img = Image.open(crop_image_path).convert("RGB")
-    orig_w, orig_h = original_image.size
-    
-    # Create mask - if bbox provided, use it; otherwise create full mask
-    # For now, we'll create a simple mask covering the crop area
-    # In a more sophisticated implementation, you could use template matching
-    # to find where the crop appears in the original image
-    
-    mask = Image.new("L", (orig_w, orig_h), 0)  # Start with black (no mask)
-    
-    if crop_bbox:
-        # Use provided bounding box
-        x1, y1, x2, y2 = crop_bbox
-        # Ensure coordinates are within image bounds
-        x1 = max(0, min(x1, orig_w))
-        y1 = max(0, min(y1, orig_h))
-        x2 = max(0, min(x2, orig_w))
-        y2 = max(0, min(y2, orig_h))
-        
-        # Create white mask in the crop area
-        mask_crop = Image.new("L", (x2 - x1, y2 - y1), 255)
-        mask.paste(mask_crop, (x1, y1))
-    else:
-        # Simple approach: create mask covering center area (fallback)
-        # This is a simplified approach - in production you might want
-        # to use template matching to find the exact crop location
-        center_x, center_y = orig_w // 2, orig_h // 2
-        crop_w, crop_h = crop_img.size
-        
-        # Place mask at center (this is a fallback - ideally use bbox)
-        x1 = max(0, center_x - crop_w // 2)
-        y1 = max(0, center_y - crop_h // 2)
-        x2 = min(orig_w, x1 + crop_w)
-        y2 = min(orig_h, y1 + crop_h)
-        
-        mask_crop = Image.new("L", (x2 - x1, y2 - y1), 255)
-        mask.paste(mask_crop, (x1, y1))
-    
-    return mask
+
+# Initialize Gemini client
+def init_gemini_client():
+    """Initialize Gemini client with API key from environment."""
+    api_key = os.getenv("NanoBanana_API_KEY")
+    if not api_key:
+        raise ValueError("NanoBanana_API_KEY not found in environment variables")
+    return genai.Client(api_key=api_key)
 
 
 def generate_design(
     original_image_path: str,
     crop_image_path: str,
-    prompt: str,
-    sd_pipe: StableDiffusionInpaintPipeline
+    prompt: str = None,
+    recommendation_image_path: str = None,
+    item_name: str = "furniture",
+    sd_pipe = None 
 ) -> Image.Image:
     """
-    Generate a new furniture design using diffusion inpainting.
+    גרסה מעודכנת המשתמשת ב-Gemini 2.5 Flash (NanoBanana API)
+    """
+    load_dotenv()
     
-    This function creates a mask from the selected crop and uses Stable Diffusion
-    to inpaint that area with a new design based on the prompt.
+    # 1. בדיקת קבצים
+    if not os.path.exists(original_image_path):
+        raise FileNotFoundError(f"Original image not found: {original_image_path}")
+
+    # 2. אתחול ה-Client (הוספתי verify=False ליתר ביטחון בגלל בעיית ה-SSL שראינו)
+    client = genai.Client(
+        api_key=os.getenv("NanoBanana_API_KEY"),
+    )
+
+    # 3. בניית הפרומפט המשופר (כדי שגמני ישמור על שאר החדר)
+    enhanced_prompt = (
+        f"Create an image based on this room. Please replace ONLY the {item_name} "
+        f"according to this request: '{prompt}'. "
+        f"Keep the rest of the room (walls, floor, lighting, and other objects) exactly the same. "
+        f"The new {item_name} should blend naturally into the scene."
+    )
+
+    # 4. הכנת התמונות למשלוח
+    original_img = Image.open(original_image_path)
+    contents = [enhanced_prompt, original_img]
+
+    # אם יש תמונת המלצה, נוסיף גם אותה כרפרנס ויזואלי
+    if recommendation_image_path and os.path.exists(recommendation_image_path):
+        rec_img = Image.open(recommendation_image_path)
+        contents.append("Here is a reference for the style/color:")
+        contents.append(rec_img)
+
+    print(f"--- [GENERATE] Sending request to Gemini 2.5 Flash for {item_name} ---")
+
+    # 5. קריאה ל-API
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-image",
+            contents=contents,
+        )
+    except Exception as e:
+        print(f"❌ Error calling Gemini: {e}")
+        raise RuntimeError(f"Generation failed: {e}")
+
+    # 6. שליפת התמונה מהתגובה והחזרתה
+    generated_image = None
+    for part in response.parts:
+        if part.inline_data is not None:
+            generated_image = part.as_image()
+            # שמירה מקומית לגיבוי (אופציונלי)
+            generated_image.save("last_generated_output.png")
+            break
+            
+    if generated_image is None:
+        # אם גמני החזיר רק טקסט (למשל הודעת שגיאה או סירוב)
+        for part in response.parts:
+            if part.text:
+                print(f"⚠️ Gemini returned text: {part.text}")
+        raise RuntimeError("Gemini did not return an image part.")
+
+    print("✅ Design generated successfully!")
+    return generated_image
+
+def old_generate_design(
+    original_image_path: str,
+    crop_image_path: str,
+    prompt: str = None,
+    recommendation_image_path: str = None,
+    item_name: str = "furniture",
+    sd_pipe = None  # No longer used, kept for backwards compatibility
+) -> Image.Image:
+    """
+    Generate a new furniture design using Google Gemini 2.5 Flash.
+    
+    Sends the original image with a description of the desired changes
+    to Gemini, which generates an improved design.
     
     Args:
         original_image_path: Path to the original full image
-        crop_image_path: Path to the selected crop image
+        crop_image_path: Path to the selected crop image (for reference)
         prompt: Text prompt describing the desired design
-        sd_pipe: Loaded StableDiffusionInpaintPipeline model
+        recommendation_image_path: Path to recommendation product image
+        item_name: Name of the furniture item
+        sd_pipe: Deprecated, not used
         
     Returns:
         PIL Image with the generated design
@@ -97,104 +120,157 @@ def generate_design(
     """
     print(f"--- [GENERATE] Request received. Crop path: {crop_image_path} ---")
     
-    if sd_pipe is None:
-        print("⚠️ Diffusion model not available. Returning dummy image.")
-        # Return a dummy image for testing
-        return Image.new('RGB', (512, 512), color='blue')
-    
-    # Load original image
+    # Verify files exist
     if not os.path.exists(original_image_path):
         raise FileNotFoundError(f"Original image not found at: {original_image_path}")
     
     if not os.path.exists(crop_image_path):
         raise FileNotFoundError(f"Crop image not found at: {crop_image_path}")
     
-    print(f"DEBUG: Original Path: {original_image_path}")
-    print(f"DEBUG: Crop Path: {crop_image_path}")
+    if recommendation_image_path and not os.path.exists(recommendation_image_path):
+        print(f"⚠️  Recommendation image not found, using text prompt instead")
+        recommendation_image_path = None
     
-    # Load images
+    # Initialize Gemini client
+    try:
+        client = init_gemini_client()
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        raise RuntimeError("Cannot initialize Gemini client") from e
+    
+    # Load original image
     original_image = Image.open(original_image_path).convert("RGB")
     
-    # Create mask from crop
-    # Note: We don't have bbox info here, so we'll use a simple approach
-    # In production, you might want to pass bbox from detection results
-    mask = create_mask_from_crop(original_image, crop_image_path)
+    print(f"DEBUG: Original Path: {original_image_path}")
+    print(f"DEBUG: Crop Path: {crop_image_path}")
+    if recommendation_image_path:
+        print(f"DEBUG: Recommendation Image Path: {recommendation_image_path}")
+    if prompt:
+        print(f"DEBUG: User prompt: '{prompt}'")
     
-    # Resize for processing (diffusion models typically work best at 512x512)
-    process_size = (512, 512)
-    img_resized = original_image.resize(process_size, Image.Resampling.LANCZOS)
-    mask_resized = mask.resize(process_size, Image.Resampling.LANCZOS)
-    
-    # Generate with diffusion
-    print(f"⚡ Inpainting with prompt: '{prompt}'...")
-    try:
-        result = sd_pipe(
-            prompt=f"{prompt}, high quality, realistic interior, extremely bright",
-            image=img_resized,
-            mask_image=mask_resized,
-            num_inference_steps=8,
-            guidance_scale=4.0,
-            strength=0.99
-        ).images[0]
+    # Build the prompt for Gemini
+    if recommendation_image_path:
+        recommendation_img = Image.open(recommendation_image_path).convert("RGB")
         
-        # Resize back to original dimensions
-        final_result = result.resize(original_image.size, Image.Resampling.LANCZOS)
-        print("✅ Generation complete.")
-        return final_result
+        print(f"⚡ Using recommendation image as reference for: {item_name}")
         
-    except Exception as e:
-        print(f"❌ Generation failed: {e}")
-        raise RuntimeError(f"Image generation failed: {e}") from e
-
-
-def load_diffusion_model() -> StableDiffusionInpaintPipeline:
-    """
-    Load Stable Diffusion Inpaint Pipeline with LCM scheduler and TinyVAE.
-    
-    Returns:
-        Loaded StableDiffusionInpaintPipeline with LCM acceleration
+        # Extract color from recommendation
+        import numpy as np
+        rec_array = np.array(recommendation_img)
+        h, w = rec_array.shape[:2]
+        center_region = rec_array[h//4:3*h//4, w//4:3*w//4]
+        pixels = center_region.reshape(-1, 3)
+        dominant_color = np.median(pixels, axis=0).astype(int)
+        r, g, b = dominant_color
         
-    Raises:
-        ImportError: If diffusers or torch is not installed
-        RuntimeError: If model loading fails
-    """
-    try:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"🔄 Loading Stable Diffusion pipeline on {device}...")
+        # Determine color name
+        color_name = "dark"
+        if r < 100 and g < 100 and b < 100:
+            color_name = "black"
+        elif r > 200 and g > 150 and b < 100:
+            color_name = "brown"
+        elif r > 150 and g < 100 and b > 150:
+            color_name = "purple"
+        elif r > 200 and g > 180 and b < 100:
+            color_name = "beige"
+        elif r > 100 and g > 100 and b > 150:
+            color_name = "blue"
+        elif r > 100 and g > 150 and b < 100:
+            color_name = "green"
         
-        # Load fast VAE
-        fast_vae = AutoencoderTiny.from_pretrained(
-            "madebyollin/taesd",
-            torch_dtype=torch.float32
+        print(f"⚡ Detected color: {color_name} (RGB: {r}, {g}, {b})")
+        
+        gemini_prompt = (
+            f"I have a room image. I want to change the {item_name} to match "
+            f"this reference image (which shows a {color_name} {item_name}). "
+            f"Please modify only the {item_name} in the room image to look like the reference, "
+            f"while keeping everything else (walls, other furniture, lighting) the same. "
+            f"Make the changes look natural and realistic."
         )
         
-        # Load main pipeline
-        sd_pipe = StableDiffusionInpaintPipeline.from_pretrained(
-            "runwayml/stable-diffusion-inpainting",
-            vae=fast_vae,
-            torch_dtype=torch.float32,
-            safety_checker=None
+        print(f"⚡ Enhanced prompt: '{gemini_prompt}'")
+        
+        # Call Gemini with both images
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-image",
+                contents=[
+                    gemini_prompt,
+                    types.Part(inline_data=types.Blob(
+                        mime_type="image/jpeg",
+                        data=_image_to_bytes(original_image)
+                    )),
+                    "Here's the reference image:",
+                    types.Part(inline_data=types.Blob(
+                        mime_type="image/jpeg",
+                        data=_image_to_bytes(recommendation_img)
+                    )),
+                ],
+            )
+        except Exception as e:
+            print(f"❌ Gemini generation failed: {e}")
+            raise RuntimeError(f"Gemini generation failed: {e}") from e
+    else:
+        # Use text prompt only
+        gemini_prompt = (
+            f"I have a room image. I want to change the {item_name} according to this description: '{prompt}'. "
+            f"Please modify only the {item_name} in the room image based on the description, "
+            f"while keeping everything else (walls, other furniture, lighting) the same. "
+            f"Make the changes look natural and realistic."
         )
         
-        # Apply LCM acceleration
-        sd_pipe.load_lora_weights("latent-consistency/lcm-lora-sdv1-5")
-        sd_pipe.scheduler = LCMScheduler.from_config(sd_pipe.scheduler.config)
+        print(f"⚡ Enhanced prompt: '{gemini_prompt}'")
         
-        # Move to device
-        sd_pipe.to(device)
-        
-        if device == "cuda":
-            print("✅ Stable Diffusion loaded on CUDA (GPU) - High performance expected.")
-        else:
-            print("✅ Stable Diffusion loaded on CPU - Expect longer generation times.")
-        
-        return sd_pipe
-        
-    except ImportError as e:
-        raise ImportError(
-            "diffusers or torch not installed. "
-            "Please run: pip install diffusers torch"
-        ) from e
-    except Exception as e:
-        raise RuntimeError(f"Failed to load Stable Diffusion model: {e}") from e
+        # Call Gemini with original image
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-image",
+                contents=[
+                    gemini_prompt,
+                    types.Part(inline_data=types.Blob(
+                        mime_type="image/jpeg",
+                        data=_image_to_bytes(original_image)
+                    )),
+                ],
+            )
+        except Exception as e:
+            print(f"❌ Gemini generation failed: {e}")
+            raise RuntimeError(f"Gemini generation failed: {e}") from e
+    
+    # Extract generated image from response
+    generated_image = None
+    for part in response.parts:
+        if part.inline_data is not None:
+            try:
+                generated_image = part.as_image()
+                break
+            except Exception:
+                continue
+    
+    if generated_image is None:
+        # Try text response as fallback
+        for part in response.parts:
+            if part.text is not None:
+                print(f"⚠️  Gemini returned text instead of image: {part.text}")
+        raise RuntimeError("Gemini did not return a generated image")
+    
+    print("✅ Generation complete.")
+    return generated_image
+
+
+def _image_to_bytes(image: Image.Image) -> bytes:
+    """Convert PIL Image to JPEG bytes."""
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=95)
+    return buffer.getvalue()
+
+
+def load_diffusion_model():
+    """
+    Deprecated: No longer needed with Gemini API.
+    
+    Returns None for backwards compatibility.
+    """
+    print("⚠️  load_diffusion_model() is deprecated. Using Gemini API instead.")
+    return None
 

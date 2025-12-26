@@ -111,7 +111,7 @@ const ProjectReveal = ({
       formData.append("selected_crop_url", selectedCropUrl);
       formData.append("prompt", vision);
 
-      const res = await fetch(`${API_BASE_URL}/generate_design`, {
+      const res = await fetch(`${API_BASE_URL}/generate_new_design`, {
         method: "POST",
         body: formData,
       });
@@ -126,6 +126,39 @@ const ProjectReveal = ({
       }
     } catch (error) {
       console.error("Generate design failed", error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateFromRecommendation = async (product: Product) => {
+    if (!generationContext || isGenerating) return;
+    const { originalImagePath, selectedCropUrl } = generationContext;
+    if (!originalImagePath || !selectedCropUrl || !product.item_img) return;
+
+    try {
+      setIsGenerating(true);
+      const formData = new FormData();
+      formData.append("original_image_path", originalImagePath);
+      formData.append("selected_crop_url", selectedCropUrl);
+      formData.append("recommendation_image_url", product.item_img);
+      formData.append("item_name", product.item_name || "furniture");
+
+      const res = await fetch(`${API_BASE_URL}/generate_from_recommendation`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error("Generation failed");
+      }
+
+      const data = await res.json();
+      if (data.generated_image && onGeneratedImage) {
+        onGeneratedImage(data.generated_image);
+      }
+    } catch (error) {
+      console.error("Generate from recommendation failed", error);
     } finally {
       setIsGenerating(false);
     }
@@ -340,6 +373,21 @@ const ProjectReveal = ({
                             <ExternalLink className="w-3 h-3" />
                           </span>
                         </div>
+                        
+                        {/* Generate Button */}
+                        {generationContext && (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleGenerateFromRecommendation(product);
+                            }}
+                            disabled={isGenerating}
+                            className="w-full mt-3 px-3 py-2 text-[9px] tracking-[0.18em] uppercase font-light border border-white/30 text-white bg-white/5 hover:bg-white/15 transition disabled:opacity-50"
+                          >
+                            {isGenerating ? "Generating..." : "Visualize"}
+                          </button>
+                        )}
                       </div>
                     </motion.a>
                   );
