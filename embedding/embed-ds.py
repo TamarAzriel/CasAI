@@ -8,7 +8,7 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import CSV_FILE, IMAGES_DIR, EMBEDDINGS_FILE
-from core.embeddings import EmbeddingService
+from core.clip import CLIPModel
 
 
 def embed_images_from_csv(csv_path: str = None, images_dir: str = None, output_pkl_path: str = None, model=None) -> pd.DataFrame:
@@ -24,7 +24,7 @@ def embed_images_from_csv(csv_path: str = None, images_dir: str = None, output_p
     Returns:
         DataFrame with all CSV columns + 'vector' column containing embeddings
     """
-    embedding_service = EmbeddingService(model=model)
+    embedding_service = model
     return embedding_service.encode_images_from_csv(
         csv_path=csv_path,
         images_dir=images_dir,
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     # Create embedding service
-    embedding_service = EmbeddingService()
+    embedding_service = CLIPModel()
     
     # Create embeddings
     print("\n" + "="*60)
@@ -50,5 +50,5 @@ if __name__ == "__main__":
         csv_path=str(CSV_FILE),
         images_dir=str(IMAGES_DIR),
         output_pkl_path=str(EMBEDDINGS_FILE),
-        model=embedding_service.model
+        model=embedding_service
     )
