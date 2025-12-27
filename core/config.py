@@ -17,6 +17,8 @@ CSV_FILE = DATA_DIR / "ikea_il.csv"
 APPDATA_DIR = PROJECT_ROOT / "appdata"
 DETECT_DIR = APPDATA_DIR / "detect"
 UPLOADS_DIR = APPDATA_DIR / "uploads"
+GENERATED_DIR = PROJECT_ROOT / "appdata" / "generated"
+
 # Model configuration
 CLIP_MODEL_NAME = 'clip-ViT-B-32'
 YOLO_CONF_THRESHOLD = 0.25
@@ -53,7 +55,7 @@ def get_style_description(style_name: str) -> str:
 
 def ensure_directories():
     """Ensure all required directories exist."""
-    directories = [DATA_DIR, IMAGES_DIR, APPDATA_DIR, DETECT_DIR, UPLOADS_DIR]
+    directories = [DATA_DIR, IMAGES_DIR, APPDATA_DIR, DETECT_DIR, UPLOADS_DIR, GENERATED_DIR]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
 

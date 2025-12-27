@@ -1,19 +1,15 @@
 """Core business logic modules for CasAI."""
 
-from .models import ModelLoader, YOLODetectionService, Recommender, generate_design
-from .recommender import Recommender as RecommenderClass
-from .embeddings import EmbeddingService
-from .clip import CLIPModel, load_clip_model
-from .yolo import YOLODetectionService as YOLOService, load_yolo_model
-from .diffusion import generate_design as diffusion_generate
+from .models import ModelLoader
+from .recommender import Recommender
+from .clip import CLIPModel
+from .yolo import YOLODetectionService
+from .diffusion import DesignGenerationService
 
 __all__ = [
     'ModelLoader',
-    'YOLODetectionService',
     'Recommender',
-    'generate_design',
-    'EmbeddingService',
     'CLIPModel',
-    'load_clip_model',
-    'load_yolo_model',
+    'YOLODetectionService',
+    'DesignGenerationService',
 ]

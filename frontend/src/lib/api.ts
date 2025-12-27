@@ -30,18 +30,6 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-export async function recommendByText(query: string): Promise<Recommendation[]> {
-  const response = await fetch(`${API_BASE_URL}/recommend/text`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query }),
-  });
-
-  return handleResponse<Recommendation[]>(response);
-}
-
 export async function recommendByImage(params: { image: File; text?: string }): Promise<Recommendation[]> {
   const formData = new FormData();
   formData.append("image", params.image);
@@ -49,7 +37,7 @@ export async function recommendByImage(params: { image: File; text?: string }): 
     formData.append("text", params.text.trim());
   }
 
-  const response = await fetch(`${API_BASE_URL}/recommend/image`, {
+  const response = await fetch(`${API_BASE_URL}/recommend`, {
     method: "POST",
     body: formData,
   });

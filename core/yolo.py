@@ -27,7 +27,7 @@ class YOLODetectionService:
             self.yolo_model = yolo_model
         else:
             # Load model from config
-            self.yolo_model = load_yolo_model(model_path)
+            self.yolo_model = self.load_model(model_path)
     
     def detect_furniture(
         self,
@@ -116,24 +116,24 @@ class YOLODetectionService:
         return detected_photos
 
 
-def load_yolo_model(model_name: Optional[str] = None) -> YOLO:
-    """
-    Load YOLO model for furniture detection.
-    
-    Args:
-        model_path: Optional custom path to YOLO model. If None, loads model from config.
+    @staticmethod
+    def load_model(model_path: Optional[str] = None) -> YOLO:
+        """
+        Load YOLO model for furniture detection.
         
-    Returns:
-        Loaded YOLO model
+        Args:
+            model_path: Optional custom path to YOLO model. If None, loads model from config.
+            
+        Returns:
+            Loaded YOLO model
+            
+        Raises:
+            FileNotFoundError: If custom model_path is provided but doesn't exist
+        """
+        if model_path:
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"YOLO model not found at {model_path}")
+            return YOLO(model_path, task='detect')
         
-    Raises:
-        FileNotFoundError: If custom model_path is provided but doesn't exist
-    """
-    if model_name:
-        if not os.path.exists(model_name):
-            raise FileNotFoundError(f"YOLO model not found at {model_name}")
-        return YOLO(model_name, task='detect')
-    
-    # Load raw YOLO model from config (will download automatically if not cached)
-    return YOLO(YOLO_MODEL_NAME, task='detect')
-
+        # Load raw YOLO model from config (will download automatically if not cached)
+        return YOLO(YOLO_MODEL_NAME, task='detect')

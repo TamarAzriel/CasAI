@@ -114,7 +114,7 @@ const DesignRequestModal = ({ isOpen, onClose, onResults }: ExtendedModalProps) 
             
             formData.append("text", vision);
 
-            const res = await fetch(`${API_BASE_URL}/recommend/image`, { method: "POST", body: formData });
+            const res = await fetch(`${API_BASE_URL}/recommend`, { method: "POST", body: formData });
             if (!res.ok) throw new Error("Search failed");
 
             const data: RecommendationItem[] = await res.json();

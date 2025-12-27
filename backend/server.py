@@ -14,29 +14,18 @@ from typing import Union
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 import os
-import sys
 import base64
 import traceback
 import pandas as pd
 from io import BytesIO
-from dotenv import load_dotenv
 from PIL import Image
 import time
+import json
 from pathlib import Path
 
-# Load environment variables from .env file
-load_dotenv()
 
 # Add parent directory to path for imports (project root)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# שורה 26 המעודכנת
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
-
-from core.recommender import search_google_shopping
-
-GENERATED_DIR = PROJECT_ROOT / "appdata" / "generated"
-os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
@@ -44,6 +33,7 @@ from core.config import (
     DETECT_DIR,
     UPLOADS_DIR,
     IMAGES_DIR,
+    GENERATED_DIR,
     ensure_directories,
     url_to_file_path,
 )
@@ -67,27 +57,19 @@ ensure_directories()
 try:
     detection_service = ModelLoader.load_detection_service()
     recommendation_service = ModelLoader.load_recommendation_service()
+    generation_service = ModelLoader.load_generation_service()
     print("Detection and recommendation services loaded successfully.")
 except Exception as e:
     print(f"WARNING: Failed to load some services. Error: {e}")
     traceback.print_exc()
     detection_service = None
     recommendation_service = None
-
-# Load generation service for design generation
-try:
-    generation_service = ModelLoader.load_generation_service()
-    print("✅ Generation service loaded successfully.")
-except Exception as e:
-    print(f"⚠️  Generation service failed to load: {e}")
-    traceback.print_exc()
     generation_service = None
 
 
 # ============================================================================
 # Static file serving endpoints
 # ============================================================================
-
 @app.route('/appdata/detect/<path:filename>')
 def serve_detected_files(filename: str) -> Response:
     """Serve detected crop images."""
@@ -104,10 +86,10 @@ def serve_generated_files(filename):
     """מגיש את התמונות שה-AI יצר"""
     return send_from_directory(str(GENERATED_DIR), filename)
 
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
-
 @app.get("/")
 def health_check() -> dict:
     """Health check endpoint."""
@@ -149,6 +131,7 @@ def detect() -> Union[Response, tuple[Response, int]]:
         traceback.print_exc()
         return jsonify({"error": "Detection failed"}), 500
     
+#TODO: need to test and validate correctly
 @app.post("/api/chat")
 def chat_endpoint():
     """Endpoint לצ'אט עם Gemini"""
@@ -168,7 +151,6 @@ def chat_endpoint():
         return jsonify({"error": "No image provided"}), 400
 
     # 2. קבלת ההודעות
-    import json
     messages_str = request.form.get("messages", "[]")
     try:
         messages = json.loads(messages_str)
@@ -193,101 +175,85 @@ def chat_endpoint():
 @app.post("/generate_new_design")
 def generate_new_design() -> Union[Response, tuple[Response, int]]:
     """Generate new furniture design and save it as a file on the server."""
-    if generation_service is None:
-        return jsonify({"error": "Generation service not available"}), 500
-    
-    original_image_path = request.form.get("original_image_path", "")
-    selected_crop_url = request.form.get("selected_crop_url", "")
-    prompt = request.form.get("prompt", "")
-    
-    if not original_image_path or not prompt or not selected_crop_url:
-        return jsonify({"error": "Missing required fields"}), 400
-    
-    try:
-        crop_path = url_to_file_path(selected_crop_url)
-        
-        # 1. קריאה לשירות היצירה (גמני)
-        raw_generated_image = generation_service(
-            original_image_path,
-            str(crop_path),
-            prompt
-        )
-        
-        if raw_generated_image is None:
-            return jsonify({"error": "Generation failed to produce an image"}), 500
-        
-        # 2. המרה בטוחה ל-PIL Image
-        if hasattr(raw_generated_image, 'convert'):
-            final_img = raw_generated_image.convert("RGB")
-        else:
-            from PIL import Image
-            final_img = Image.fromarray(raw_generated_image).convert("RGB")
-        
-        # 3. יצירת שם קובץ ייחודי (לפי זמן) ושמירה לדיסק
-        filename = f"design_{int(time.time())}.jpg"
-        save_path = os.path.join(GENERATED_DIR, filename)
-        
-        # שמירה פיזית בתיקיית appdata/generated
-        final_img.save(save_path, "JPEG", quality=95)
-        
-        # 4. החזרת הכתובת (URL) שדרכה React יוכל לגשת לתמונה
-        image_url = f"/appdata/generated/{filename}"
-        
-        print(f"✅ Image saved successfully: {save_path}")
-        return jsonify({"generated_image_url": image_url})
-        
-    except Exception as e:
-        print(f"🚨 GENERATION ERROR: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "Image generation failed"}), 500
-
-@app.post("/generate_from_recommendation")
-def generate_from_recommendation() -> Union[Response, tuple[Response, int]]:
-    """Generate furniture design based on recommended product image."""
+    global generation_service
     if generation_service is None:
         return jsonify({"error": "Generation service not available"}), 500
     
     original_image_path = request.form.get("original_image_path", "")
     selected_crop_url = request.form.get("selected_crop_url", "")
     recommendation_image_url = request.form.get("recommendation_image_url", "")
-    item_name = request.form.get("item_name", "furniture")
+    prompt = request.form.get("prompt", "")
+    
+    if not original_image_path or not prompt or not selected_crop_url or not recommendation_image_url:
+        return jsonify({"error": "Missing required fields"}), 400
     
     try:
         crop_path = url_to_file_path(selected_crop_url)
         rec_path = url_to_file_path(recommendation_image_url)
-        
-        # יצירת העיצוב
-        raw_generated_image = generation_service(
+        save_path = os.path.join(GENERATED_DIR, "generated.png")
+        # 1. קריאה לשירות היצירה (גמני)
+        generation_service.generate_image(
             original_image_path,
             str(crop_path),
-            str(rec_path),
-            item_name=item_name
+            prompt,
+            str(rec_path)
         )
-        
-        if raw_generated_image is None:
-            return jsonify({"error": "Generation failed to produce an image"}), 500
-        
-        # --- התיקון כאן: שימוש בשם משתנה שונה מ-'Image' כדי למנוע התנגשות ---
-        if hasattr(raw_generated_image, 'convert'):
-            final_img = raw_generated_image.convert("RGB")
-        else:
-            final_img = Image.fromarray(raw_generated_image).convert("RGB")
-        
-        buffered = BytesIO()
-        # עכשיו ה-format="JPEG" יעבוד כי final_img הוא בוודאות אובייקט Pillow
-        final_img.save(buffered, format="JPEG", quality=90)
-        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        
-        return jsonify({"generated_image": img_str})
+        return jsonify({"generated_image_path": save_path})
         
     except Exception as e:
-        print(f"🚨 GENERATION FROM RECOMMENDATION ERROR: {e}")
+        print(f"🚨 GENERATION ERROR: {e}")
         traceback.print_exc()
         return jsonify({"error": "Image generation failed"}), 500
 
+# TODO: need to know if it work correctly with the function
+# @app.post("/generate_from_recommendation")
+# def generate_from_recommendation() -> Union[Response, tuple[Response, int]]:
+#     global generation_service
+#     """Generate furniture design based on recommended product image."""
+#     if generation_service is None:
+#         return jsonify({"error": "Generation service not available"}), 500
+    
+#     original_image_path = request.form.get("original_image_path", "")
+#     selected_crop_url = request.form.get("selected_crop_url", "")
+#     recommendation_image_url = request.form.get("recommendation_image_url", "")
+#     item_name = request.form.get("item_name", "furniture")
+    
+#     try:
+#         crop_path = url_to_file_path(selected_crop_url)
+#         rec_path = url_to_file_path(recommendation_image_url)
+        
+#         # יצירת העיצוב
+#         raw_generated_image = generation_service(
+#             original_image_path,
+#             str(crop_path),
+#             str(rec_path),
+#             item_name=item_name
+#         )
+        
+#         if raw_generated_image is None:
+#             return jsonify({"error": "Generation failed to produce an image"}), 500
+        
+#         # --- התיקון כאן: שימוש בשם משתנה שונה מ-'Image' כדי למנוע התנגשות ---
+#         if hasattr(raw_generated_image, 'convert'):
+#             final_img = raw_generated_image.convert("RGB")
+#         else:
+#             final_img = Image.fromarray(raw_generated_image).convert("RGB")
+        
+#         buffered = BytesIO()
+#         # עכשיו ה-format="JPEG" יעבוד כי final_img הוא בוודאות אובייקט Pillow
+#         final_img.save(buffered, format="JPEG", quality=90)
+#         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        
+#         return jsonify({"generated_image": img_str})
+        
+#     except Exception as e:
+#         print(f"🚨 GENERATION FROM RECOMMENDATION ERROR: {e}")
+#         traceback.print_exc()
+#         return jsonify({"error": "Image generation failed"}), 500
 
-@app.post("/recommend/image")
-def recommend_image() -> Union[Response, tuple[Response, int]]:
+
+@app.post("/recommend")
+def recommend() -> Union[Response, tuple[Response, int]]:
     """Get recommendations based on image and optional text."""
     if recommendation_service is None:
         return jsonify({"error": "Recommendation service not available"}), 500
@@ -296,6 +262,8 @@ def recommend_image() -> Union[Response, tuple[Response, int]]:
         selected_crop_url = request.form.get("crop_url", "")
         text = request.form.get("text", "")
         query_image_path = None
+        if not text and not selected_crop_url and not "image" in request.files:
+            return jsonify({"error": "Either crop_url/image or text query is required"}), 400
         
         # Handle crop URL
         if selected_crop_url:
@@ -328,9 +296,10 @@ def recommend_image() -> Union[Response, tuple[Response, int]]:
         
         # Get recommendations
         results = recommendation_service.recommend(
-            query_text=text.strip() if text.strip() else None,
+            query_text=text.strip(),
             query_image_path=query_image_path,
-            top_k=10
+            top_k=10,
+            alpha=0.5
         )
         
         # Format response (remove vector column, format image paths)
@@ -365,46 +334,18 @@ def recommend_image() -> Union[Response, tuple[Response, int]]:
         return jsonify({"error": "Recommendation failed"}), 500
 
 
-@app.post("/recommend/text")
-def recommend_text() -> Union[Response, tuple[Response, int]]:
-    """Get recommendations based on text query."""
-    if recommendation_service is None:
-        return jsonify({"error": "Recommendation service not available"}), 500
-    
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "JSON body is required"}), 400
-        
-        query = data.get("query", "")
-        if not query:
-            return jsonify({"error": "query field is required"}), 400
-        
-        # Get recommendations
-        results = recommendation_service.recommend(query_text=query, top_k=10)
-        
-        # Remove vector column before sending
-        if 'vector' in results.columns:
-            results = results.drop(columns=['vector'])
-        
-        return jsonify(results.to_dict(orient="records"))
-        
-    except Exception as e:
-        print(f"🚨 RECOMMENDATION ERROR: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "Recommendation failed"}), 500
-
 
 @app.post("/google_search")
 def google_search_endpoint() -> Union[Response, tuple[Response, int]]:
     """Proxy endpoint to fetch Google Shopping links using Serper.dev."""
+    global recommendation_service
     try:
         data = request.json or {}
         query = data.get("query", "").strip()
         if not query:
             return jsonify({"error": "query field is required"}), 400
 
-        results = search_google_shopping(query)
+        results = recommendation_service.search_google_shopping(query)
         # ensure each result has an id for the frontend
         for idx, item in enumerate(results):
             if "id" not in item:

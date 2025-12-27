@@ -5,47 +5,32 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from PIL import Image
-from sentence_transformers import SentenceTransformer
 import requests
-import json
 import urllib.parse
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 
+from .clip import CLIPModel
 from .config import get_style_description
-import google.generativeai as genai # pyright: ignore[reportMissingImports]
-from PIL import Image
 
 
 class Recommender:
     """Recommendation engine using CLIP embeddings for similarity search."""
     
-    def __init__(self, model: SentenceTransformer, embeddings_df: pd.DataFrame):
+    def __init__(self, model: CLIPModel, embeddings_df: pd.DataFrame):
         """
         Initialize recommender with model and embeddings.
         
         Args:
-            model: CLIP model for encoding queries
+            model: CLIPModel instance for encoding queries
             embeddings_df: DataFrame with 'vector' column containing embeddings
         """
         self.model = model
         self.embeddings_df = self._prepare_embeddings(embeddings_df)
         
-        # הגדרת מפתח ה-API של גוגל
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            genai.configure(api_key=api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-        else:
-            print("⚠️ GEMINI_API_KEY not found in environment variables.")
-            self.gemini_model = None
-
-         # טוען את המשתנים מהקובץ .env
+        # Load environment variables
         load_dotenv()
 
-        
-        # --- DEBUG קריטי: הדפסת שמות העמודות ---
-        print(f"DEBUG: Recommendation DF Columns: {self.embeddings_df.columns.tolist()}")
-    
+
     @staticmethod
     def _prepare_embeddings(embeddings_df: pd.DataFrame) -> pd.DataFrame:
         """Filter and prepare embeddings DataFrame."""
@@ -54,64 +39,42 @@ class Recommender:
             raise ValueError("No valid embeddings found in DataFrame")
         return valid_df
     
-    def _encode_query(
+    def _encode(
         self,
         query_text: Optional[str] = None,
-        query_image_path: Optional[str] = None
-    ) -> tuple[np.ndarray, list[str]]:
+        query_image_path: Optional[str] = None,
+        alpha: float = 0.5
+    ) -> np.ndarray:
         """
         Encode query (text and/or image) into embedding vector.
         
         Args:
             query_text: Optional text query
             query_image_path: Optional path to query image
+            alpha: Weight for text embedding when both are provided (default: 0.5)
             
         Returns:
-            Tuple of (query_vector, embedding_types)
+            Query embedding vector as numpy array
         """
-        query_embeddings = []
-        embedding_types = []
-        
-        # Handle image if provided
-        if query_image_path is not None:
-            if not os.path.exists(query_image_path):
-                raise FileNotFoundError(f"Query image not found: {query_image_path}")
-            try:
-                print("🖼️  Encoding IMAGE embedding...")
-                img = Image.open(query_image_path).convert('RGB')
-                img_embedding = self.model.encode(img)
-                query_embeddings.append(img_embedding)
-                embedding_types.append("IMAGE")
-                print("✅ Image embedding created successfully")
-            except Exception as e:
-                raise ValueError(f"Failed to encode query image: {e}")
-        
-        # Handle text if provided
-        if query_text is not None and query_text.strip():
-            # Check if it's a style name
-            style_desc = get_style_description(query_text)
-            print(f"📝 Encoding TEXT embedding for: '{query_text}'...")
-            text_embedding = self.model.encode(style_desc)
-            query_embeddings.append(text_embedding)
-            embedding_types.append("TEXT")
-            print("✅ Text embedding created successfully")
-        
-        # Check if we have at least one embedding
-        if len(query_embeddings) == 0:
-            raise ValueError("At least one of query_text or query_image_path must be provided")
-        
-        # Combine embeddings if both provided (weighted average)
-        if len(query_embeddings) == 2:
-            print("🔀 Combining BOTH embeddings (image + text) with equal weights...")
-            query_vector = (query_embeddings[0] + query_embeddings[1]) / 2.0
-            print("✅ Combined embedding created successfully")
+        if query_text and query_image_path:
+            # Both text and image provided - combine with weighted average
+            query_text = get_style_description(query_text)
+            text_embedding = np.array(self.model.encode_text(query_text))
+            image_embedding = np.array(self.model.encode_image(query_image_path))
+            # Weighted combination
+            combined = alpha * text_embedding + (1 - alpha) * image_embedding
+            return combined.flatten()
+        elif query_text:
+            # Text only
+            query_text = get_style_description(query_text)
+            text_embedding = np.array(self.model.encode_text(query_text))
+            return text_embedding.flatten()
+        elif query_image_path:
+            # Image only
+            image_embedding = np.array(self.model.encode_image(query_image_path))
+            return image_embedding.flatten()
         else:
-            query_vector = query_embeddings[0]
-            print(f"✅ Using {embedding_types[0]} embedding only")
-        
-        print(f"🎯 Final embedding type: {' + '.join(embedding_types)}")
-        
-        return query_vector, embedding_types
+            raise ValueError("Either query_text or query_image_path must be provided")
     
     def _calculate_similarities(
         self,
@@ -143,7 +106,8 @@ class Recommender:
         self,
         query_text: Optional[str] = None,
         query_image_path: Optional[str] = None,
-        top_k: int = 10
+        top_k: int = 10,
+        alpha: float = 0.5
     ) -> pd.DataFrame:
         """
         Get top-k recommendations based on query.
@@ -157,7 +121,7 @@ class Recommender:
             DataFrame with top_k recommendations including similarity scores
         """
         # Encode query
-        query_vector, embedding_types = self._encode_query(query_text, query_image_path)
+        query_vector = self._encode(query_text, query_image_path, alpha)
         
         # Get product vectors
         product_vectors = np.array([v.flatten() for v in self.embeddings_df['vector'].values])
@@ -176,73 +140,88 @@ class Recommender:
         
         return top_results
 
+    def search_google_shopping(self, query: str) -> list[dict]:
+        """
+        Google Shopping search using Serper.dev API.
+        Returns stable, user-safe links to Google Shopping results.
+        
+        Args:
+            query: Search query string
+            
+        Returns:
+            List of product dictionaries with title, price, source, image, link
+            Each product has:
+            - title: Product name
+            - price: Product price (if available)
+            - source: Store/source name
+            - image: Product image URL
+            - link: Stable Google Shopping search link
+            - raw_link: Original product link (if available)
+        """
+        url = "https://google.serper.dev/shopping"
+        
+        # Get API key from environment
+        api_key = os.getenv("SERPER_API_KEY")
+        
+        if not api_key:
+            print("⚠️ Error: SERPER_API_KEY not found in environment variables.")
+            return []
 
-def search_google_shopping(query):
-    """
-    Google Shopping search using Serper.dev
-    Returns stable, user-safe links
-    """
+        payload = {
+            "q": query,
+            "gl": "il",  # Country: Israel
+            "hl": "he"   # Language: Hebrew
+        }
 
-    url = "https://google.serper.dev/shopping"
+        headers = {
+            "X-API-KEY": api_key,
+            "Content-Type": "application/json"
+        }
 
-    # שליפת המפתח מהקובץ הסודי
-    api_key = os.getenv("SERPER_API_KEY")
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=20)
+            response.raise_for_status()
+            results = response.json()
 
-    # בדיקת בטיחות: אם המפתח לא נמצא, מחזירים רשימה ריקה כדי לא לקרוס
-    if not api_key:
-        print("Error: SERPER_API_KEY not found in .env file.")
-        return []
+            shopping_results = results.get("shopping", [])
+            products = []
 
-    payload = {
-        "q": query,
-        "gl": "il",
-        "hl": "he"
-    }
+            for item in shopping_results:
+                title = item.get("title", "")
+                if not title:
+                    continue
+                
+                # Create stable Google Shopping search link
+                safe_title = urllib.parse.quote(title)
+                stable_link = f"https://www.google.com/search?q={safe_title}&tbm=shop"
 
-    headers = {
-        "X-API-KEY": api_key,
-        "Content-Type": "application/json"
-    }
+                products.append({
+                    "title": title,
+                    "price": item.get("price"),
+                    "source": item.get("source", ""),
+                    "image": item.get("imageUrl", ""),
+                    "link": stable_link,
+                    "raw_link": item.get("link", "")  # Original product link
+                })
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        results = response.json()
+            print(f"✅ Found {len(products)} Google Shopping results for '{query}'")
+            return products
 
-        shopping_results = results.get("shopping", [])
-        products = []
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Error searching Google Shopping (network): {e}")
+            return []
+        except Exception as e:
+            print(f"❌ Error searching Google Shopping: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
-        for item in shopping_results:
-            title = item.get("title", "")
-            safe_title = urllib.parse.quote(title)
-
-            # ✅ לינק יציב שתמיד עובד (חיפוש בגוגל שופינג לפי הכותרת)
-            stable_link = f"https://www.google.com/search?q={safe_title}&tbm=shop"
-
-            products.append({
-                "title": title,
-                "price": item.get("price"),
-                "source": item.get("source"),
-                "image": item.get("imageUrl"),
-                "link": stable_link,  # הלינק הזה ייפתח בוודאות
-                "raw_link": item.get("link")  # שומרים את המקור למקרה הצורך
-            })
-
-        return products
-
-    except Exception as e:
-        print(f"Error searching Google Shopping: {e}")
-        return []
     
-    # בתוך core/recommender.py
-
+    #TODO: need to know if it work correctly i didnt look at this code yet
     def chat_with_designer(self, image_path, messages):
         """
         ניהול שיחה עם Gemini Pro Vision (חינם).
         """
-        if not self.gemini_model:
-            return "Error: GEMINI_API_KEY is missing."
-
         try:
             # טעינת התמונה
             img = Image.open(image_path)

@@ -7,14 +7,37 @@ from .config import CLIP_MODEL_NAME
 class CLIPModel:
     """Wrapper for CLIP model operations."""
     
-    def __init__(self, model: SentenceTransformer):
+    def __init__(self):
         """
         Initialize CLIP model wrapper.
         
         Args:
-            model: Loaded SentenceTransformer CLIP model
+            model: Optional pre-loaded SentenceTransformer CLIP model
+            model_name: Optional model name to load. If model is None, will load using model_name or default.
         """
-        self.model = model
+        self.model = self.load_model()
+    
+    @staticmethod
+    def load_model() -> SentenceTransformer:
+        """
+        Load CLIP model for image similarity.
+        
+        Args:
+        Returns:
+            Loaded SentenceTransformer CLIP model
+            
+        Raises:
+            ImportError: If sentence-transformers is not installed
+        """
+        try:
+            model = SentenceTransformer(CLIP_MODEL_NAME)
+            print("✅ CLIP model loaded successfully!")
+            return model
+        except ImportError:
+            raise ImportError(
+                "sentence-transformers not installed. "
+                "Please run: pip install sentence-transformers"
+            )
     
     def encode_text(self, text: str) -> list:
         """
@@ -41,39 +64,3 @@ class CLIPModel:
         from PIL import Image
         img = Image.open(image_path).convert('RGB')
         return self.model.encode(img).tolist()
-    
-    def encode(self, input_data) -> list:
-        """
-        Encode input (text string or PIL Image) into embedding vector.
-        
-        Args:
-            input_data: Text string or PIL Image
-            
-        Returns:
-            Embedding vector as list
-        """
-        return self.model.encode(input_data).tolist()
-
-
-def load_clip_model(model_name: str = CLIP_MODEL_NAME) -> SentenceTransformer:
-    """
-    Load CLIP model for image similarity.
-    
-    Args:
-        model_name: Name of the CLIP model to load
-        
-    Returns:
-        Loaded SentenceTransformer CLIP model
-        
-    Raises:
-        ImportError: If sentence-transformers is not installed
-    """
-    try:
-        model = SentenceTransformer(model_name)
-        return model
-    except ImportError:
-        raise ImportError(
-            "sentence-transformers not installed. "
-            "Please run: pip install sentence-transformers"
-        )
-

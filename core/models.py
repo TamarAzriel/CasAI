@@ -9,11 +9,11 @@ import pickle
 from typing import Optional
 import pandas as pd
 
-from .config import EMBEDDINGS_FILE
-from .clip import load_clip_model as _load_clip_model
-from .yolo import load_yolo_model as _load_yolo_model, YOLODetectionService
-from .diffusion import generate_design
+from .clip import CLIPModel
+from .diffusion import DesignGenerationService
+from .yolo import YOLODetectionService
 from .recommender import Recommender
+from .config import EMBEDDINGS_FILE
 
 
 class ModelLoader:
@@ -51,93 +51,45 @@ class ModelLoader:
         Returns:
             Recommender instance ready to use
         """
-        clip_model = _load_clip_model()
+        clip_model = CLIPModel()  # Will load default model automatically
         ikea_df = ModelLoader._load_ikea_dataframe(df_path)
-        return Recommender(clip_model, ikea_df)
+        return Recommender(model=clip_model, embeddings_df=ikea_df)
     
     @staticmethod
-    def load_generation_service():
+    def load_generation_service() -> DesignGenerationService:
         """
-        Load generation service using Gemini 2.5 Flash API.
-        
-        Returns:
-            Function that generates designs: generate(original_path, crop_path, prompt_or_rec_path, item_name) -> Image
+        Load generation service for design generation.
         """
-        def generate(original_image_path: str, crop_image_path: str, prompt_or_rec_path: str = None, item_name: str = "furniture"):
-            """
-            Generate design using Google Gemini 2.5 Flash API.
-            
-            Args:
-                original_image_path: Path to original room image
-                crop_image_path: Path to cropped furniture
-                prompt_or_rec_path: Either text prompt or path to recommendation image
-                item_name: Name of furniture item (for recommendation mode)
-            """
-            # Check if prompt_or_rec_path is a file path (recommendation mode) or text (prompt mode)
-            import os
-            if prompt_or_rec_path and os.path.exists(prompt_or_rec_path):
-                # Recommendation mode - pass as recommendation_image_path
-                return generate_design(
-                    original_image_path, 
-                    crop_image_path, 
-                    recommendation_image_path=prompt_or_rec_path,
-                    item_name=item_name
-                )
-            else:
-                # Prompt mode - pass as prompt
-                return generate_design(
-                    original_image_path, 
-                    crop_image_path, 
-                    prompt=prompt_or_rec_path or "furniture"
-                )
-        
-        return generate
+        return DesignGenerationService()
     
     # ========================================================================
-    # Internal Helper Methods (Not for backend use)
+    # Private Helper Methods
     # ========================================================================
-    
     @staticmethod
     def _load_ikea_dataframe(df_path: Optional[str] = None) -> pd.DataFrame:
         """
-        Load IKEA product DataFrame with embeddings.
+        Load IKEA DataFrame from pickle file.
         
         Args:
-            df_path: Optional custom path to pickle file
+            df_path: Optional custom path to DataFrame file. If None, uses config default.
             
         Returns:
             DataFrame with product data and embeddings
             
         Raises:
             FileNotFoundError: If DataFrame file doesn't exist
-            ValueError: If DataFrame is invalid
         """
-        path = df_path or str(EMBEDDINGS_FILE)
+        if df_path is None:
+            df_path = str(EMBEDDINGS_FILE)
         
-        if not os.path.exists(path):
-            error_msg = (
-                f"IKEA DataFrame not found at {path}\n\n"
-                "Please run the embedding script first:\n"
-                "  python embedding/embed-ds.py"
-            )
-            raise FileNotFoundError(error_msg)
+        if not os.path.exists(df_path):
+            raise FileNotFoundError(f"IKEA DataFrame not found at {df_path}")
         
-        try:
-            with open(path, 'rb') as f:
-                df = pickle.load(f)
-            
-            # Verify DataFrame has required columns
-            required_cols = [
-                'vector', 'item_name', 'item_price', 
-                'item_cat', 'image_url', 'product_link'
-            ]
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
-                print(f"Warning: DataFrame missing columns: {missing_cols}")
-            
-            return df
-        except Exception as e:
-            raise ValueError(f"Failed to load IKEA DataFrame: {e}") from e
+        print(f"📖 Loading IKEA DataFrame from {df_path}...")
+        with open(df_path, 'rb') as f:
+            df = pickle.load(f)
+        print(f"✅ Loaded {len(df)} products from DataFrame")
+        return df
 
 
 # Public API exports
