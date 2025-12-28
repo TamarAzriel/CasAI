@@ -2,6 +2,7 @@
 
 import os
 import io
+import traceback
 from typing import Optional
 from google.genai import types
 from google import genai
@@ -24,114 +25,97 @@ class DesignGenerationService:
         self,
         original_image_path: str,
         crop_image_path: str,
+        recommendation_image_path: str, # הפכנו את זה לחובה, כי הלוגיקה החדשה חייבת המלצה
         prompt: Optional[str] = None,
-        recommendation_image_path: Optional[str] = None,
         item_name: str = "furniture",
         save_path: Optional[str] = None
-    ) -> Image.Image:
-        """
-        Generate a modified design image using Gemini 2.5 Flash.
-
-        - Replaces the area defined by `crop_image_path` in the scene at
-          `original_image_path` according to `prompt`.
-        - Optionally uses `recommendation_image_path` as a visual reference.
-        - Saves the resulting image to `save_path` and returns a PIL Image.
+    ) -> Optional[Image.Image]:
         
-        Args:
-            original_image_path: Path to original room image
-            crop_image_path: Path to cropped furniture image
-            save_path: Path to save the generated image
-            prompt: Optional text prompt for generation
-            recommendation_image_path: Optional path to reference image
-            item_name: Name of furniture item
-            
-        Returns:
-            Generated PIL Image
-            
-        Raises:
-            FileNotFoundError: If input images don't exist
-            RuntimeError: If generation fails
-        """
-        # Validate input files
-        if not os.path.exists(original_image_path):
-            raise FileNotFoundError(f"Original image not found: {original_image_path}")
-        if not os.path.exists(crop_image_path):
-            raise FileNotFoundError(f"Cropped image not found: {crop_image_path}")
-        if recommendation_image_path and not os.path.exists(recommendation_image_path):
-            raise FileNotFoundError(f"Recommendation image not found: {recommendation_image_path}")
-
-        # Initialize client
-        client = self._init_client()
-
-        # Build prompt
-        prompt_text = (
-            prompt.strip() if prompt else f"Replace the {item_name} in the scene with a natural-looking {item_name}."
-        )
-        enhanced_prompt = (
-            f"Create an image based on this room. Replace ONLY the {item_name} I uploaded according to this request: '")
-        enhanced_prompt += prompt_text
-        enhanced_prompt += (
-            "'. Keep the rest of the room (walls, floor, lighting, and other objects) exactly the same. "
-            "The new item should blend naturally into the scene."
-        )
-
-        original_buf = self._img_to_buffer(original_image_path)
-        crop_buf = self._img_to_buffer(crop_image_path)
-
-        contents = [enhanced_prompt, original_buf, crop_buf]
-
-        rec_buf = self._img_to_buffer(recommendation_image_path)
-        contents.append("Here is a reference for the style/color:")
-        contents.append(rec_buf)
-
-        print(f"--- [GENERATE] Sending request to Gemini 2.5 Flash for {item_name} ---")
-
+        print(f"--- [START] Generating design combining 3 images ---")
+        
         try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-image",
-                contents=contents,
+            # 1. פתיחת שלוש התמונות (במקום person1, person2...)
+            # אלו התמונות האמיתיות מהמערכת שלך
+            print("📂 Loading images...")
+            img_original = Image.open(original_image_path)
+            img_crop = Image.open(crop_image_path)
+            
+            # וידוא שתמונת ההמלצה קיימת לפני שפותחים
+            if not os.path.exists(recommendation_image_path):
+                 raise FileNotFoundError(f"Recommendation image not found at: {recommendation_image_path}")
+            img_recommendation = Image.open(recommendation_image_path)
+
+            # 2. הגדרת הפרומפט (ההוראה למודל)
+            # אנחנו אומרים לו במפורש: קח את החדר, תזהה את מה שיש בקרופ, ותחליף אותו במה שיש בהמלצה.
+            user_description = prompt if (prompt and prompt.strip()) else f"a new {item_name}"
+
+            final_prompt = (
+                f"In the original room image, please replace the object shown in the crop image "
+                f"with the following: {user_description}. "
+                f"Use the recommendation image as a reference for the exact style and design. "
+                f"Ensure the result integrates naturally with the room's lighting, shadows, and perspective."
             )
+            print(f"📝 Prompt instruction: {final_prompt}")
+
+            # 3. בניית רשימת התוכן (Contents)
+            # זה החלק הקריטי - שולחים את הטקסט ואת כל שלוש התמונות יחד
+            contents = [
+                final_prompt,          # ההוראה המילולית
+                img_original,          # תמונת החדר המלאה (הקשר)
+                img_crop,              # האובייקט שצריך להחליף (הישן)
+                img_recommendation     # האובייקט החדש מאיקאה
+            ]
+
+            # הגדרות איכות
+            aspect_ratio = "4:3" 
+            resolution = "2K"
+
+            print("🚀 Sending request to Gemini (this might take a moment)...")
+            
+            # 4. שליחת הבקשה (בדיוק כמו בקוד הדוגמה)
+            # שיניתי ל-gemini-2.0-flash כי הוא היציב ביותר כרגע שעובד לך
+            response = self._client.models.generate_content(
+                model="gemini-3-pro-image-preview", 
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    response_modalities=['TEXT', 'IMAGE'], # מבקש גם טקסט וגם תמונה
+                    image_config=types.ImageConfig(
+                        aspect_ratio=aspect_ratio,
+                        image_size=resolution
+                    ),
+                )
+            )
+
+            # 5. עיבוד התשובה ושמירה (כמו בלולאת ה-for בדוגמה)
+            generated_image = None
+            if response.parts:
+                for part in response.parts:
+                    # אם המודל החזיר טקסט הסבר, נדפיס אותו
+                    if part.text is not None:
+                         print(f"💬 Gemini says: {part.text}")
+                    
+                    # אם המודל החזיר תמונה (בעזרת אופרטור הוולרוס :=)
+                    elif image := part.as_image():
+                        generated_image = image
+                        
+                        if save_path:
+                            # וידוא שהתיקייה קיימת לפני השמירה
+                            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                            # שמירת הקובץ (במקום "office.png")
+                            generated_image.save(save_path)
+                            print(f"✅ Image saved successfully to: {save_path}")
+                        
+                        return generated_image # מחזירים את אובייקט התמונה
+            else:
+                 # אם הגענו לכאן, גוגל חסם את הבקשה (בדרך כלל בטיחות)
+                 print("⚠️ Gemini blocked the request or returned empty parts (check safety filters).")
+                 return None
+
+        except FileNotFoundError as e:
+             print(f"❌ Image file not found error: {e}")
+             raise
         except Exception as e:
-            print(f"❌ Error calling Gemini: {e}")
+            print(f"❌ Error during generation process:")
+            # הדפסת שגיאה מלאה כדי שנבין מה קרה
+            traceback.print_exc()
             raise RuntimeError(f"Generation failed: {e}")
-
-        # Extract image from response
-        generated_image = None
-        for part in getattr(response, "parts", []):
-            if getattr(part, "inline_data", None) is not None:
-                generated_image = part.as_image()
-                break
-
-        if generated_image is None:
-            # If Gemini returned only text, log and raise
-            for part in getattr(response, "parts", []):
-                if getattr(part, "text", None):
-                    print(f"⚠️ Gemini returned text: {part.text}")
-            raise RuntimeError("Gemini did not return an image part.")
-
-        # Save image if save_path is provided
-        if save_path:
-            # Ensure destination directory exists
-            save_dir = os.path.dirname(save_path)
-            if save_dir and not os.path.exists(save_dir):
-                os.makedirs(save_dir, exist_ok=True)
-
-            # If save_path is a directory, create a filename
-            if os.path.isdir(save_path) or save_path.endswith(os.path.sep):
-                save_path = os.path.join(save_path, f"generated_{item_name}.jpg")
-            # If no extension provided, add .png
-            if not os.path.splitext(save_path)[1]:
-                save_path = save_path + f"_{item_name}.png"
-    
-            generated_image.save(save_path, format="JPEG", quality=95)
-            print(f"✅ Design generated and saved to {save_path}")
-
-    @staticmethod
-    def _img_to_buffer(img_path: str) -> io.BytesIO:
-        """Helper to convert PIL image to bytes buffer (PNG)."""
-        img = Image.open(img_path)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return buf
-    

@@ -137,32 +137,32 @@ const ProjectReveal = ({
     if (!originalImagePath || !selectedCropUrl || !product.item_img) return;
 
     try {
-      setIsGenerating(true);
-      const formData = new FormData();
-      formData.append("original_image_path", originalImagePath);
-      formData.append("selected_crop_url", selectedCropUrl);
-      formData.append("recommendation_image_url", product.item_img);
-      formData.append("item_name", product.item_name || "furniture");
+        setIsGenerating(true);
+        const formData = new FormData();
+        formData.append("original_image_path", originalImagePath);
+        formData.append("selected_crop_url", selectedCropUrl);
+        formData.append("recommendation_image_url", product.item_img); // ודאי שזה אכן URL של ת
+        formData.append("prompt", `A ${product.item_name} design`);     // ודאי שזה הטקסט
 
-      const res = await fetch(`${API_BASE_URL}/generate_from_recommendation`, {
-        method: "POST",
-        body: formData,
-      });
+        const res = await fetch(`${API_BASE_URL}/generate_new_design`, {
+            method: "POST",
+            body: formData,
+        });
 
-      if (!res.ok) {
-        throw new Error("Generation failed");
-      }
+        if (!res.ok) throw new Error("Generation failed");
 
-      const data = await res.json();
-      if (data.generated_image && onGeneratedImage) {
-        onGeneratedImage(data.generated_image);
-      }
+        const data = await res.json();
+        
+        // כאן התיקון: data.generated_image הוא הסטרינג של התמונה מהשרת
+        if (data.generated_image && onGeneratedImage) {
+            onGeneratedImage(data.generated_image);
+        }
     } catch (error) {
-      console.error("Generate from recommendation failed", error);
+        console.error("Generate from recommendation failed", error);
     } finally {
-      setIsGenerating(false);
+        setIsGenerating(false);
     }
-  };
+};
 
   const handleDownload = () => {
     if (!generatedImage) return;

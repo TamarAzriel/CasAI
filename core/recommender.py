@@ -8,6 +8,7 @@ from PIL import Image
 import requests
 import urllib.parse
 from dotenv import load_dotenv
+import google.generativeai as genai # type: ignore
 
 from .clip import CLIPModel
 from .config import get_style_description
@@ -18,18 +19,40 @@ class Recommender:
     
     def __init__(self, model: CLIPModel, embeddings_df: pd.DataFrame):
         """
-        Initialize recommender with model and embeddings.
-        
-        Args:
-            model: CLIPModel instance for encoding queries
-            embeddings_df: DataFrame with 'vector' column containing embeddings
+        Initialize recommender with model, embeddings, and Gemini.
         """
         self.model = model
         self.embeddings_df = self._prepare_embeddings(embeddings_df)
         
-        # Load environment variables
+        # 1. טעינת קובץ ה-env
         load_dotenv()
 
+        # 2. שליפת המפתח (שימי לב לשם המדויק שלך)
+        api_key = os.getenv("AIChat_API_KEY")
+
+        if not api_key:
+            print("⚠️ Warning: AIChat_API_KEY not found in .env file")
+            self.gemini_model = None
+            return # עוצר כאן אם אין מפתח כדי למנוע קריסה
+
+        # 3. הגדרת המפתח מול הספרייה של גוגל (חייב לקרות כאן!)
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+
+        try:
+            # 4. יצירת המודל (שימוש בגרסה יציבה)
+            self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+            
+            # בדיקה אופציונלית - רק כדי לוודא שזה עובד
+            # print("--- Available Models ---")
+            # for m in genai.list_models():
+            #     print(m.name)
+                
+            print("✅ Gemini Designer is ready!")
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize Gemini: {e}")
+            self.gemini_model = None
 
     @staticmethod
     def _prepare_embeddings(embeddings_df: pd.DataFrame) -> pd.DataFrame:
@@ -250,4 +273,4 @@ class Recommender:
 
         except Exception as e:
             print(f"Gemini Error: {e}")
-            return "מצטערת, הייתה בעיה בתקשורת עם המעצבת. נסה שוב."
+            return "Sorry, there was a communication issue with the designer. Please try again"

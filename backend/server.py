@@ -10,10 +10,12 @@ This server provides REST API endpoints for:
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 
+import sys
 from typing import Union
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 import os
+
 import base64
 import traceback
 import pandas as pd
@@ -26,6 +28,8 @@ from pathlib import Path
 
 # Add parent directory to path for imports (project root)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
@@ -66,7 +70,9 @@ except Exception as e:
     recommendation_service = None
     generation_service = None
 
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# הנתיב שבו התמונות נשמרות
+GENERATED_DIR = os.path.join(BASE_DIR, "appdata", "generated")
 # ============================================================================
 # Static file serving endpoints
 # ============================================================================
@@ -81,11 +87,9 @@ def serve_ikea_images(filename: str) -> Response:
     """Serve IKEA product images."""
     return send_from_directory(str(IMAGES_DIR), filename)
 
-@app.route('/appdata/generated/<path:filename>')
-def serve_generated_files(filename):
-    """מגיש את התמונות שה-AI יצר"""
-    return send_from_directory(str(GENERATED_DIR), filename)
-
+@app.route('/generated/<filename>')
+def serve_generated_image(filename):
+    return send_from_directory(GENERATED_DIR, filename)
 
 # ============================================================================
 # API Endpoints
@@ -191,14 +195,24 @@ def generate_new_design() -> Union[Response, tuple[Response, int]]:
         crop_path = url_to_file_path(selected_crop_url)
         rec_path = url_to_file_path(recommendation_image_url)
         save_path = os.path.join(GENERATED_DIR, "generated.png")
+        
         # 1. קריאה לשירות היצירה (גמני)
-        generation_service.generate_image(
-            original_image_path,
-            str(crop_path),
-            prompt,
-            str(rec_path)
-        )
-        return jsonify({"generated_image_path": save_path})
+        generation_service.generate_design(
+            original_image_path,       # 1. original_image_path
+            str(crop_path),            # 2. crop_image_path
+            str(rec_path),             # 3. recommendation_image_path (התמונה מאיקאה)
+            prompt,                    # 4. prompt (הטקסט מהמשתמש)
+            item_name="furniture",     # 5. item_name (אופציונלי)
+            save_path=save_path        # 6. save_path
+            )
+        timestamp = int(time.time())
+        image_url = f"http://127.0.0.1:5000/generated/generated.png?t={timestamp}"
+        
+        with open(save_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # אנחנו מחזירים את התמונה עצמה כטקסט, לא את הנתיב שלה
+        return jsonify({"generated_image": encoded_string})
         
     except Exception as e:
         print(f"🚨 GENERATION ERROR: {e}")

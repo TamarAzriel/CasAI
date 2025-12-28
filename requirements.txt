@@ -10,3 +10,6 @@ lxml
 Flask-CORS
 python-dotenv
 google-generativeai
+segment-anything
+torch
+torchvision
