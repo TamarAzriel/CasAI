@@ -19,17 +19,8 @@ import os
 import base64
 import traceback
 import pandas as pd
-from io import BytesIO
-from PIL import Image
 import time
 import json
-from pathlib import Path
-
-
-# Add parent directory to path for imports (project root)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
 
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
@@ -70,9 +61,6 @@ except Exception as e:
     recommendation_service = None
     generation_service = None
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# הנתיב שבו התמונות נשמרות
-GENERATED_DIR = os.path.join(BASE_DIR, "appdata", "generated")
 # ============================================================================
 # Static file serving endpoints
 # ============================================================================
@@ -195,7 +183,7 @@ def generate_new_design() -> Union[Response, tuple[Response, int]]:
         crop_path = url_to_file_path(selected_crop_url)
         rec_path = url_to_file_path(recommendation_image_url)
         save_path = os.path.join(GENERATED_DIR, "generated.png")
-        
+
         # 1. קריאה לשירות היצירה (גמני)
         generation_service.generate_design(
             original_image_path,       # 1. original_image_path
@@ -207,10 +195,10 @@ def generate_new_design() -> Union[Response, tuple[Response, int]]:
             )
         timestamp = int(time.time())
         image_url = f"http://127.0.0.1:5000/generated/generated.png?t={timestamp}"
-        
+
         with open(save_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-        
+
         # אנחנו מחזירים את התמונה עצמה כטקסט, לא את הנתיב שלה
         return jsonify({"generated_image": encoded_string})
         

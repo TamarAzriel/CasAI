@@ -90,7 +90,3 @@ class ModelLoader:
             df = pickle.load(f)
         print(f"✅ Loaded {len(df)} products from DataFrame")
         return df
-
-
-# Public API exports
-__all__ = ['ModelLoader']
