@@ -2,9 +2,9 @@
 /similarity-train/multilabel0/*
 /data/ikea*/
 /yolo-train/best.onnx
-/appdata/*
 __pycache__/
 /**/__pycache__/
 /venv/
 .env
 /.idea
+/appdata/

@@ -17,7 +17,7 @@ CSV_FILE = DATA_DIR / "ikea_il.csv"
 APPDATA_DIR = PROJECT_ROOT / "appdata"
 DETECT_DIR = APPDATA_DIR / "detect"
 UPLOADS_DIR = APPDATA_DIR / "uploads"
-GENERATED_DIR = PROJECT_ROOT / "appdata" / "generated"
+GENERATED_DIR = APPDATA_DIR / "generated"
 
 # Model configuration
 CLIP_MODEL_NAME = 'clip-ViT-B-32'
