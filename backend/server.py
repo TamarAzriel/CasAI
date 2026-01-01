@@ -21,7 +21,12 @@ import traceback
 import pandas as pd
 import time
 import json
+from pathlib import Path
+# Add parent directory to path for imports (project root)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+if str(PROJECT_ROOT) not in sys.path:
+ sys.path.append(str(PROJECT_ROOT))
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
 from core.config import (
@@ -30,7 +35,7 @@ from core.config import (
     IMAGES_DIR,
     GENERATED_DIR,
     ensure_directories,
-    url_to_file_path,
+    url_to_file_path, PROJECT_ROOT,
 )
 
 # Initialize Flask app
@@ -327,9 +332,17 @@ def recommend() -> Union[Response, tuple[Response, int]]:
                 item_data['item_img'] = ""
             
             response_data.append(item_data)
-        
-        return jsonify(response_data)
-        
+
+            # שליפת המידות שג'מיני חישב מתוך שירות ההמלצות
+            target_w, target_l = recommendation_service.estimate_dimensions(query_image_path)
+
+            # שליפת המידות שג'מיני חישב
+            target_w, target_l = recommendation_service.estimate_dimensions(query_image_path)
+
+            # שליפת המידות שג'מיני חישב עבור התמונה
+            target_w, target_l = recommendation_service.estimate_dimensions(query_image_path)
+
+            return jsonify(response_data)
     except Exception as e:
         print(f"🚨 RECOMMENDATION ERROR: {e}")
         traceback.print_exc()
