@@ -31,6 +31,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+import google.generativeai as genai
+import os
+
+# 1. הגדרת ה-API Key שלך (מומלץ להשתמש במשתנה סביבה)
+genai.configure(api_key="YOUR_GEMINI_API_KEY")
+
+# 2. יצירת מופע של המודל - זה ה-"model" שהפונקציה מחפשת
+# אנחנו משתמשים ב-gemini-1.5-flash כי הוא מהיר וחסכוני
+model = genai.GenerativeModel('gemini-2.5-flash')
+
 # Only import from core.models - this is the single entry point
 from core.models import ModelLoader
 from core.config import (
@@ -265,79 +275,166 @@ def generate_new_design() -> Union[Response, tuple[Response, int]]:
 #         traceback.print_exc()
 #         return jsonify({"error": "Image generation failed"}), 500
 
+# ###
+# @app.post("/recommend")
+# def recommend() -> Union[Response, tuple[Response, int]]:
+#     """Get recommendations based on image and optional text."""
+#     if recommendation_service is None:
+#         return jsonify({"error": "Recommendation service not available"}), 500
+    
+#     try:
+#         selected_crop_url = request.form.get("crop_url", "")
+#         text = request.form.get("text", "")
+#         query_image_path = None
+#         if not text and not selected_crop_url and not "image" in request.files:
+#             return jsonify({"error": "Either crop_url/image or text query is required"}), 400
+        
+#         # Handle crop URL
+#         if selected_crop_url:
+#             query_image_path = url_to_file_path(selected_crop_url)
+#             if not query_image_path.exists():
+#                 return jsonify({"error": "Selected crop file not found"}), 404
+#             query_image_path = str(query_image_path)
+        
+#         # Handle uploaded image
+#         elif "image" in request.files:
+#             if detection_service is None:
+#                 return jsonify({"error": "Detection service not available"}), 500
+            
+#             img = request.files["image"]
+#             save_path = UPLOADS_DIR / img.filename
+#             img.save(str(save_path))
+            
+#             detections = detection_service.detect_furniture(
+#                 image_path=str(save_path),
+#                 save_dir=str(DETECT_DIR)
+#             )
+            
+#             if not detections:
+#                 return jsonify({"error": "No furniture detected"}), 400
+            
+#             query_image_path = detections[0]["path"]
+        
+#         if not query_image_path and not text.strip():
+#             return jsonify({"error": "Either crop_url/image or text query is required"}), 400
+        
+#         # Get recommendations
+#         results = recommendation_service.recommend(
+#             query_text=text.strip(),
+#             query_image_path=query_image_path,
+#             top_k=10,
+#             alpha=0.5
+#         )
+        
+#         # Format response (remove vector column, format image paths)
+#         if 'vector' in results.columns:
+#             results = results.drop(columns=['vector'])
+        
+#         # Build response with proper image URLs
+#         response_data = []
+#         for _, row in results.iterrows():
+#             item_data = {
+#                 'item_name': row.get('item_name', ''),
+#                 'item_price': row.get('item_price', ''),
+#                 'item_url': row.get('product_link', ''),
+#                 'similarity': row.get('similarity', 0.0)
+#             }
+            
+#             # Handle image path
+#             if 'image_file' in row and pd.notna(row['image_file']):
+#                 item_data['item_img'] = f"/data/ikea_il_images/{row['image_file']}"
+#             elif 'image_url' in row and pd.notna(row['image_url']):
+#                 item_data['item_img'] = row['image_url']
+#             else:
+#                 item_data['item_img'] = ""
+            
+#             response_data.append(item_data)
+        
+#         return jsonify(response_data)
+        
+#     except Exception as e:
+#         print(f"🚨 RECOMMENDATION ERROR: {e}")
+#         traceback.print_exc()
+#         return jsonify({"error": "Recommendation failed"}), 500
 
-@app.post("/recommend")
-def recommend() -> Union[Response, tuple[Response, int]]:
-    """Get recommendations based on image and optional text."""
+# ###
+def get_exact_category(user_query):
+    # רשימת הקטגוריות המדויקת מה-CSV שלך
+    categories = [
+        'Sofa 3-seat', 'Sofa bed', 'Armchair', 'Chair dining', 'Chair office', 
+        'Bar chair', 'Bed double', 'Bed single', 'Bed frame', 'Table dining', 
+        'Table coffee', 'Desk', 'Bedside table', 'Lamp floor', 'Lamp table', 
+        'Chest of drawers', 'TV bench', 'Wardrobe', 'Bookcase', 'Sideboard', 'Outdoor table'
+    ]
+    
+    prompt = f"""
+    You are a furniture expert for the CasAI app. 
+    Analyze the user's request: "{user_query}"
+    Choose the MOST relevant category from this exact list: {categories}
+    If the user wants a small bedside unit, choose 'Bedside table'.
+    If they want a larger dresser, choose 'Chest of drawers'.
+    Return ONLY the category name. If no category fits, return 'None'.
+    """
+    
+    # קריאה ל-Gemini (בהנחה ש-model מוגדר אצלך)
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+
+
+@app.route("/recommend", methods=["POST"]) # שימי לב ל-route המדויק
+def recommend():
+    """Get recommendations based on image and text with Gemini category filtering."""
     if recommendation_service is None:
         return jsonify({"error": "Recommendation service not available"}), 500
     
     try:
+        # 1. שליפת הנתונים (תמיכה ב-Form Data עבור תמונות)
         selected_crop_url = request.form.get("crop_url", "")
         text = request.form.get("text", "")
         query_image_path = None
-        if not text and not selected_crop_url and not "image" in request.files:
-            return jsonify({"error": "Either crop_url/image or text query is required"}), 400
         
-        # Handle crop URL
+        print(f"🚀 שרת CasAI: מתחיל תהליך עבור: '{text}'")
+
+        # --- לוגיקת טיפול בתמונות (נשאר מהקוד הישן שלך) ---
         if selected_crop_url:
-            query_image_path = url_to_file_path(selected_crop_url)
-            if not query_image_path.exists():
-                return jsonify({"error": "Selected crop file not found"}), 404
-            query_image_path = str(query_image_path)
-        
-        # Handle uploaded image
+            query_image_path = str(url_to_file_path(selected_crop_url))
         elif "image" in request.files:
-            if detection_service is None:
-                return jsonify({"error": "Detection service not available"}), 500
-            
             img = request.files["image"]
             save_path = UPLOADS_DIR / img.filename
             img.save(str(save_path))
-            
-            detections = detection_service.detect_furniture(
-                image_path=str(save_path),
-                save_dir=str(DETECT_DIR)
-            )
-            
-            if not detections:
-                return jsonify({"error": "No furniture detected"}), 400
-            
-            query_image_path = detections[0]["path"]
-        
-        if not query_image_path and not text.strip():
-            return jsonify({"error": "Either crop_url/image or text query is required"}), 400
-        
-        # Get recommendations
+            detections = detection_service.detect_furniture(str(save_path), str(DETECT_DIR))
+            if detections:
+                query_image_path = detections[0]["path"]
+
+        # --- הלוגיקה החדשה: סינון קטגוריה בעזרת Gemini ---
+        target_cat = "None"
+        if text.strip():
+            target_cat = get_exact_category(text.strip())
+            print(f"🔍 Gemini identified category: {target_cat}")
+
+        # 2. קריאה לשירות ההמלצות עם הפילטר החדש
         results = recommendation_service.recommend(
             query_text=text.strip(),
             query_image_path=query_image_path,
             top_k=10,
-            alpha=0.5
+            alpha=0.9,
+            category_filter=target_cat  # המשתנה הקריטי לסינון המיטות!
         )
         
-        # Format response (remove vector column, format image paths)
+        # 3. פורמט תגובה (נשאר מהקוד הישן שלך)
         if 'vector' in results.columns:
             results = results.drop(columns=['vector'])
         
-        # Build response with proper image URLs
         response_data = []
         for _, row in results.iterrows():
             item_data = {
                 'item_name': row.get('item_name', ''),
                 'item_price': row.get('item_price', ''),
                 'item_url': row.get('product_link', ''),
-                'similarity': row.get('similarity', 0.0)
+                'similarity': row.get('similarity', 0.0),
+                'item_img': f"/data/ikea_il_images/{row['image_file']}" if pd.notna(row.get('image_file')) else row.get('image_url', '')
             }
-            
-            # Handle image path
-            if 'image_file' in row and pd.notna(row['image_file']):
-                item_data['item_img'] = f"/data/ikea_il_images/{row['image_file']}"
-            elif 'image_url' in row and pd.notna(row['image_url']):
-                item_data['item_img'] = row['image_url']
-            else:
-                item_data['item_img'] = ""
-            
             response_data.append(item_data)
         
         return jsonify(response_data)
@@ -345,9 +442,7 @@ def recommend() -> Union[Response, tuple[Response, int]]:
     except Exception as e:
         print(f"🚨 RECOMMENDATION ERROR: {e}")
         traceback.print_exc()
-        return jsonify({"error": "Recommendation failed"}), 500
-
-
+        return jsonify({"error": str(e)}), 500
 
 @app.post("/google_search")
 def google_search_endpoint() -> Union[Response, tuple[Response, int]]:

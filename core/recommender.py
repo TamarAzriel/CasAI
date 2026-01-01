@@ -130,7 +130,8 @@ class Recommender:
         query_text: Optional[str] = None,
         query_image_path: Optional[str] = None,
         top_k: int = 10,
-        alpha: float = 0.5
+        alpha: float = 0.5,
+        category_filter=None
     ) -> pd.DataFrame:
         """
         Get top-k recommendations based on query.
@@ -145,9 +146,23 @@ class Recommender:
         """
         # Encode query
         query_vector = self._encode(query_text, query_image_path, alpha)
+        df_to_search = self.embeddings_df.copy()
+    
+    # סינון קשיח לפי העמודה שמצאנו ב-test_categories.py
+        if category_filter and category_filter != 'None':
+        # סינון לפי העמודה שמצאנו ב-test_categories.py
+            df_to_search = df_to_search[df_to_search['item_cat'] == category_filter]
         
+        # הדפסת בדיקה - אם תראי כאן מספר קטן (למשל 60), המיטות נעלמו!
+        print(f"📊 DEBUG: מחפש רק בתוך {len(df_to_search)} מוצרים בקטגוריה {category_filter}")
+    
+    # אם בטעות אין מוצרים בקטגוריה, נחזור לכל המאגר כדי לא לקרוס
+        if len(df_to_search) == 0:
+            print("⚠️ אזהרה: הקטגוריה ריקה, מחפש בכל המאגר")
+            df_to_search = self.embeddings_df.copy()
+
         # Get product vectors
-        product_vectors = np.array([v.flatten() for v in self.embeddings_df['vector'].values])
+        product_vectors = np.array([v for v in self.embeddings_df['vector'].values])
         
         # Calculate similarities
         similarities = self._calculate_similarities(query_vector, product_vectors)
