@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, ExternalLink, ShoppingBag, Heart } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, ShoppingBag, Heart, Bookmark, Check, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
 import heroImage from "@/assets/hero-interior.jpg"; 
-
+import { cn } from "@/lib/utils";
 // כתובת השרת
 const API_BASE_URL = "http://127.0.0.1:5000";
 
@@ -40,6 +41,14 @@ interface ProjectRevealProps {
   onClose: () => void; 
 }
 
+interface SavedProject {
+  id: string;
+  image: string | null;
+  recommendations: Product[];
+  date: string;
+  vision: string;
+}
+
 const ProjectReveal = ({
   generatedImage,
   recommendations,
@@ -48,9 +57,9 @@ const ProjectReveal = ({
   onGeneratedImage,
   onClose,
 }: ProjectRevealProps) => {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState(0);
   const [savedItems, setSavedItems] = useState<Product[]>([]);
+  const [isProjectSaved, setIsProjectSaved] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   // Wishlist persistence (localStorage)
   useEffect(() => {
@@ -62,10 +71,41 @@ const ProjectReveal = ({
           setSavedItems(parsed);
         }
       }
+
+      // Check if this specific project is already saved
+      const rawProjects = window.localStorage.getItem("casai_projects");
+      if (rawProjects && generatedImage) {
+        const projects: SavedProject[] = JSON.parse(rawProjects);
+        const exists = projects.some(p => p.image === generatedImage);
+        setIsProjectSaved(exists);
+      }
     } catch (e) {
-      console.error("Failed to load wishlist", e);
+      console.error("Failed to load data", e);
     }
-  }, []);
+  }, [generatedImage]);
+
+  const handleSaveProject = () => {
+    if (!generatedImage || isProjectSaved) return;
+
+    try {
+      const rawProjects = window.localStorage.getItem("casai_projects");
+      const projects: SavedProject[] = rawProjects ? JSON.parse(rawProjects) : [];
+      
+      const newProject: SavedProject = {
+        id: Date.now().toString(),
+        image: generatedImage,
+        recommendations: recommendations,
+        date: new Date().toLocaleDateString(),
+        vision: generationContext?.vision || "New Design"
+      };
+
+      const updatedProjects = [newProject, ...projects];
+      window.localStorage.setItem("casai_projects", JSON.stringify(updatedProjects));
+      setIsProjectSaved(true);
+    } catch (e) {
+      console.error("Failed to save project", e);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -85,84 +125,37 @@ const ProjectReveal = ({
     });
   };
 
-  // סימולציית התקדמות רכה ומינימלית בזמן ההמתנה
-  useEffect(() => {
-    if (!isGenerating) {
-      setGenerationProgress(0);
+  const handleGenerateDesign = async (image_url: string, id: string) => {
+    if (!onGeneratedImage || !generationContext || !generationContext.originalImagePath || !generationContext.selectedCropUrl) {
+      console.error("Missing context for generation");
       return;
     }
-    let current = 0;
-    const interval = setInterval(() => {
-      current = Math.min(current + 2, 90); // לא עובר 90% עד שהשרת מסיים
-      setGenerationProgress(current);
-    }, 200);
-    return () => clearInterval(interval);
-  }, [isGenerating]);
 
-  const handleGeneratePreview = async () => {
-    if (!generationContext || isGenerating) return;
-    const { originalImagePath, selectedCropUrl, vision } = generationContext;
-    if (!originalImagePath || !selectedCropUrl || !vision.trim()) return;
-
+    setGeneratingId(id);
     try {
-      setIsGenerating(true);
       const formData = new FormData();
-      formData.append("original_image_path", originalImagePath);
-      formData.append("selected_crop_url", selectedCropUrl);
-      formData.append("prompt", vision);
+      formData.append("original_image_path", generationContext.originalImagePath);
+      formData.append("selected_crop_url", generationContext.selectedCropUrl);
+      formData.append("recommendation_image_url", image_url);
+      formData.append("prompt", generationContext.vision || "A modern interior design");
 
       const res = await fetch(`${API_BASE_URL}/generate_new_design`, {
         method: "POST",
-        body: formData,
+        body: formData
       });
 
-      if (!res.ok) {
-        throw new Error("Generation failed");
-      }
-
+      if (!res.ok) throw new Error("Generation failed");
       const data = await res.json();
-      if (data.generated_image && onGeneratedImage) {
+      
+      if (data.generated_image) {
         onGeneratedImage(data.generated_image);
       }
-    } catch (error) {
-      console.error("Generate design failed", error);
+    } catch (err) {
+      console.error("Generation failed", err);
     } finally {
-      setIsGenerating(false);
+      setGeneratingId(null);
     }
   };
-
-  const handleGenerateFromRecommendation = async (product: Product) => {
-    if (!generationContext || isGenerating) return;
-    const { originalImagePath, selectedCropUrl } = generationContext;
-    if (!originalImagePath || !selectedCropUrl || !product.item_img) return;
-
-    try {
-        setIsGenerating(true);
-        const formData = new FormData();
-        formData.append("original_image_path", originalImagePath);
-        formData.append("selected_crop_url", selectedCropUrl);
-        formData.append("recommendation_image_url", product.item_img); // ודאי שזה אכן URL של ת
-        formData.append("prompt", `A ${product.item_name} design`);     // ודאי שזה הטקסט
-
-        const res = await fetch(`${API_BASE_URL}/generate_new_design`, {
-            method: "POST",
-            body: formData,
-        });
-
-        if (!res.ok) throw new Error("Generation failed");
-
-        const data = await res.json();
-        
-        // כאן התיקון: data.generated_image הוא הסטרינג של התמונה מהשרת
-        if (data.generated_image && onGeneratedImage) {
-            onGeneratedImage(data.generated_image);
-        }
-    } catch (error) {
-        console.error("Generate from recommendation failed", error);
-    } finally {
-        setIsGenerating(false);
-    }
-};
 
   const handleDownload = () => {
     if (!generatedImage) return;
@@ -189,7 +182,19 @@ const ProjectReveal = ({
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: `url(${heroImage})` }}
       />
-      <div className="absolute inset-0 bg-black/20" />
+      <div className="absolute inset-0 bg-black/50" />
+
+      {/* Top Left Logo */}
+      <motion.div 
+        initial={{ opacity: 0, x: -20 }} 
+        animate={{ opacity: 1, x: 0 }} 
+        className="absolute top-10 left-10 z-30"
+      >
+        <button onClick={onClose} className="group">
+          <h2 className="font-display text-2xl tracking-[0.2em] text-white group-hover:text-accent transition-colors text-left">CasAI</h2>
+          <div className="w-0 group-hover:w-full h-px bg-accent transition-all duration-500" />
+        </button>
+      </motion.div>
 
       {/* 2. הקונטיינר הראשי עם גלילה */}
       <div className="relative z-10 h-full overflow-y-auto p-4 md:p-8 lg:p-12">
@@ -211,82 +216,70 @@ const ProjectReveal = ({
           {/* חלק א: תמונת ה-AI (אם קיימת) */}
           {showGeneratedSection && (
             <motion.section
-              className="mb-16"
+              className="mb-20 pt-4"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.7 }}
             >
-              <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-light text-white mb-8">
-                Your Vision, Realized
-              </h1>
-
-              <div className="relative aspect-[16/9] md:aspect-[21/9] overflow-hidden border border-white/20 bg-black">
-                <img
-                  src={`data:image/jpeg;base64,${generatedImage}`}
-                  alt="AI Generated Room Design"
-                  className="w-full h-full object-contain"
-                />
-                <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-black/70 via-black/30 to-transparent">
-                  <span className="font-body text-xs uppercase tracking-widest text-white/70">
-                    AI Generated Design • CasAI
+              <div className="flex flex-col md:flex-row gap-12 items-end mb-10">
+                <div className="flex-1">
+                  <span className="font-body text-[9px] uppercase tracking-[0.5em] text-accent mb-4 block">Neural Vision Realized</span>
+                  <h1 className="font-display text-4xl md:text-6xl lg:text-7xl font-light text-white leading-none tracking-tight">
+                    Your Space, <br />Redefined.
+                  </h1>
+                </div>
+                <div className="flex flex-col items-end gap-4">
+                  <span className="font-body text-[10px] uppercase tracking-widest text-white/30 text-right max-w-[200px]">
+                    Proprietary AI blending IKEA design with your architectural DNA.
                   </span>
-                </div>
-              </div>
-
-              <div className="mt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <span className="font-body text-xs uppercase tracking-widest text-white/40">
-                  Premium AI Rendering
-                </span>
-                <button
-                  onClick={handleDownload}
-                  className="btn-editorial flex items-center gap-3"
-                >
-                  <Download className="w-4 h-4" />
-                  Download High-Res
-                </button>
-              </div>
-            </motion.section>
-          )}
-
-          {/* חלק ביניים: הזמנה להדמיה לפני ההמלצות - גרסה נקייה ומינימלית */}
-          {!showGeneratedSection && generationContext && (
-            <motion.section
-              className="mb-10"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25, duration: 0.4 }}
-            >
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-t border-white/10 pt-6">
-                <div className="space-y-1">
-                  <p className="font-body text-[11px] uppercase tracking-[0.22em] text-white/45">
-                    Curious how this could look as a full scene?
-                  </p>
-                  <p className="font-body text-sm text-white/70 max-w-md">
-                    Generate a clean AI visualization of your space using this piece and your description.
-                  </p>
-                </div>
-                <div className="flex-shrink-0">
                   <button
-                    onClick={handleGeneratePreview}
-                    disabled={isGenerating}
-                    className="px-7 py-3 text-[11px] tracking-[0.2em] uppercase font-light border border-white/40 text-white bg-transparent hover:bg-white/10 transition disabled:opacity-60"
+                    onClick={handleDownload}
+                    className="px-6 py-3 bg-white text-black rounded-xl font-body text-[9px] uppercase tracking-[0.3em] hover:bg-accent hover:text-white transition-all shadow-2xl flex items-center gap-3 group"
                   >
-                    {isGenerating ? (
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="font-body text-[11px] tracking-[0.18em] uppercase text-white/70">
-                          Rendering {generationProgress}%
-                        </span>
-                        <div className="w-24 h-px bg-white/15 overflow-hidden">
-                          <div
-                            className="h-full bg-white/80 transition-all duration-200"
-                            style={{ width: `${generationProgress}%` }}
-                          />
-                        </div>
-                      </div>
+                    <Download className="w-3.5 h-3.5" />
+                    Download Masterpiece
+                  </button>
+                  <button
+                    onClick={handleSaveProject}
+                    className={`px-6 py-3 rounded-xl font-body text-[9px] uppercase tracking-[0.3em] transition-all shadow-2xl flex items-center gap-3 border ${
+                      isProjectSaved 
+                        ? "bg-accent text-white border-accent" 
+                        : "bg-black/40 backdrop-blur-md text-white border-white/20 hover:bg-white/10"
+                    }`}
+                  >
+                    {isProjectSaved ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        Project Saved
+                      </>
                     ) : (
-                      "Generate Inspiration"
+                      <>
+                        <Heart className="w-3.5 h-3.5" />
+                        Save Full Design
+                      </>
                     )}
                   </button>
+                </div>
+              </div>
+
+              <div className="relative group/main">
+                <div className="absolute -inset-4 bg-accent/5 rounded-[3rem] blur-2xl opacity-0 group-hover/main:opacity-100 transition-opacity duration-1000" />
+                <div className="relative aspect-[16/9] md:aspect-[21/9] overflow-hidden rounded-[2.5rem] border border-white/10 bg-black shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)]">
+                  <img
+                    src={`data:image/jpeg;base64,${generatedImage}`}
+                    alt="AI Generated Room Design"
+                    className="w-full h-full object-contain scale-105 group-hover/main:scale-100 transition-transform duration-[2s] ease-out"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+                  <div className="absolute bottom-10 left-10 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-accent/20 backdrop-blur-md border border-accent/30 flex items-center justify-center">
+                      <Sparkles className="w-4 h-4 text-accent" />
+                    </div>
+                    <div>
+                      <p className="font-body text-[10px] uppercase tracking-widest text-white">CasAI Generative Engine</p>
+                      <p className="font-body text-[8px] uppercase tracking-[0.4em] text-white/40 mt-1">High-Fidelity Architectural Rendering</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </motion.section>
@@ -295,16 +288,26 @@ const ProjectReveal = ({
           {/* חלק ב: המלצות איקאה */}
           {recommendations.length > 0 && (
             <motion.section
-              className="mb-16"
+              className="mb-20"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: showGeneratedSection ? 0.5 : 0.2, duration: 0.7 }}
             >
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-12 h-px bg-accent" />
-                <h2 className="font-display text-2xl md:text-3xl font-light text-white">
-                  Curated For You
-                </h2>
+              <div className="flex items-center justify-between mb-12">
+                <div className="flex items-center gap-6">
+                  <div className="w-16 h-px bg-accent/30" />
+                  <h2 className="font-display text-3xl md:text-4xl font-light text-white tracking-tight">
+                    {showGeneratedSection ? "Complementary Pieces" : "Curated Selection"}
+                  </h2>
+                </div>
+                
+                <Link 
+                  to="/saved" 
+                  className="hidden md:flex items-center gap-3 text-white/40 hover:text-accent transition-colors group"
+                >
+                  <span className="font-body text-[9px] uppercase tracking-[0.3em]">View Collection</span>
+                  <Bookmark className="w-3 h-3 group-hover:fill-accent transition-all" />
+                </Link>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -312,19 +315,17 @@ const ProjectReveal = ({
                   if (!product) return null;
 
                   const isSaved = savedItems.some((p) => p.item_url === product.item_url);
+                  const isGenerating = generatingId === product.id.toString();
 
                   return (
-                    <motion.a
+                    <motion.div
                       key={index}
-                      href={product.item_url || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group block glass-crystal hover:bg-white/15 transition-all duration-300"
+                      className="group relative block glass-crystal rounded-[2rem] p-4 hover:bg-white/10 transition-all duration-500 border border-white/10 flex flex-col h-full"
                       initial={{ opacity: 0, y: 15 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: (showGeneratedSection ? 0.6 : 0.3) + index * 0.1, duration: 0.5 }}
                     >
-                      <div className="aspect-square overflow-hidden bg-white/5 relative">
+                      <div className="relative aspect-square overflow-hidden rounded-[1.5rem] mb-6 bg-white/5">
                         {/* Wishlist heart */}
                         <button
                           type="button"
@@ -333,7 +334,7 @@ const ProjectReveal = ({
                             e.stopPropagation();
                             toggleSaveItem(product);
                           }}
-                          className="absolute top-3 right-3 z-10 rounded-full bg-black/40 p-2 hover:bg-black/70 transition"
+                          className="absolute top-3 right-3 z-10 rounded-full bg-black/40 p-2 hover:bg-black/70 transition backdrop-blur-md"
                         >
                           <Heart
                             className={`w-4 h-4 ${
@@ -341,11 +342,37 @@ const ProjectReveal = ({
                             }`}
                           />
                         </button>
+
+                        {/* Simulation Button */}
+                        <button
+                          type="button"
+                          disabled={isGenerating}
+                          onClick={() => handleGenerateDesign(product.item_img, product.id.toString())}
+                          className={cn(
+                            "absolute bottom-3 right-3 z-10 rounded-xl px-4 py-2 flex items-center gap-2 backdrop-blur-md transition-all text-[9px] uppercase tracking-widest font-body",
+                            isGenerating 
+                              ? "bg-accent text-white animate-pulse" 
+                              : "bg-black/60 text-white/90 hover:bg-accent hover:text-white border border-white/10"
+                          )}
+                        >
+                          {isGenerating ? (
+                            <>
+                              <div className="w-2 h-2 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                              Simulating...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3 h-3 text-accent group-hover:text-white transition-colors" />
+                              Simulation
+                            </>
+                          )}
+                        </button>
+
                          {product.item_img ? (
                             <img
                               src={`${API_BASE_URL}/${product.item_img}`}
                               alt={product.item_name || 'Product'}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-all duration-700"
                               onError={(e) => {
                                 (e.target as HTMLImageElement).style.display = 'none'; 
                               }}
@@ -355,41 +382,31 @@ const ProjectReveal = ({
                          )}
                       </div>
 
-                      <div className="p-4">
-                        {product.brand && (
-                          <span className="font-body text-[10px] uppercase tracking-widest text-accent">
-                            {product.brand}
-                          </span>
-                        )}
-                        <h3 className="font-display text-base text-white mt-1 line-clamp-2">
-                          {product.item_name || "Unknown Item"}
-                        </h3>
-                        <div className="flex items-center justify-between mt-3">
-                          <span className="font-body text-sm text-white/80">
+                      <div className="space-y-3 px-2 flex-1 flex flex-col justify-between">
+                        <div className="text-right rtl">
+                          <p className="font-body text-[9px] uppercase tracking-[0.3em] text-accent font-medium mb-1">
+                            {product.brand || "IKEA SELECTION"}
+                          </p>
+                          <h3 className="font-display text-lg text-white font-light line-clamp-2 leading-tight">
+                            {product.item_name || "Unknown Item"}
+                          </h3>
+                        </div>
+                        <div className="flex justify-between items-center pt-4 border-t border-white/5 mt-auto">
+                          <span className="font-body text-sm text-white/40 tracking-wider">
                             {product.item_price || "N/A"}
                           </span>
-                          <span className="font-body text-xs uppercase tracking-widest text-white/50 group-hover:text-accent transition-colors flex items-center gap-1">
+                          <a 
+                            href={product.item_url || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-body text-[10px] uppercase tracking-widest text-white/30 group-hover:text-accent transition-colors flex items-center gap-1"
+                          >
                             View
                             <ExternalLink className="w-3 h-3" />
-                          </span>
+                          </a>
                         </div>
-                        
-                        {/* Generate Button */}
-                        {generationContext && (
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleGenerateFromRecommendation(product);
-                            }}
-                            disabled={isGenerating}
-                            className="w-full mt-3 px-3 py-2 text-[9px] tracking-[0.18em] uppercase font-light border border-white/30 text-white bg-white/5 hover:bg-white/15 transition disabled:opacity-50"
-                          >
-                            {isGenerating ? "Generating..." : "Visualize"}
-                          </button>
-                        )}
                       </div>
-                    </motion.a>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -417,31 +434,52 @@ const ProjectReveal = ({
               </div>
               <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-2 px-2">
                 {externalLinks.map((item, index) => (
-                  <motion.a
-                    key={item.id}
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-shrink-0 w-60 glass-crystal p-4 hover:bg-white/15 transition-all duration-300 group"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.8 + index * 0.05, duration: 0.5 }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-14 h-14 flex-shrink-0 overflow-hidden border border-white/20">
-                        {item.image ? (
-                           <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
-                        ) : (
-                           <div className="w-full h-full bg-white/10 flex items-center justify-center"><ShoppingBag className="w-4 h-4"/></div>
-                        )}
+                    <motion.div
+                      key={item.id}
+                      className="flex-shrink-0 w-64 glass-crystal p-4 hover:bg-white/15 transition-all duration-300 group relative"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.8 + index * 0.05, duration: 0.5 }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-16 h-16 flex-shrink-0 overflow-hidden border border-white/20 relative group/img">
+                          {item.image ? (
+                             <>
+                               <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
+                               <button 
+                                 onClick={() => handleGenerateDesign(item.image!, item.id.toString())}
+                                 disabled={generatingId === item.id.toString()}
+                                 className={cn(
+                                   "absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity",
+                                   generatingId === item.id.toString() && "opacity-100"
+                                 )}
+                               >
+                                 {generatingId === item.id.toString() ? (
+                                   <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                 ) : (
+                                   <Sparkles className="w-4 h-4 text-accent" />
+                                 )}
+                               </button>
+                             </>
+                          ) : (
+                             <div className="w-full h-full bg-white/10 flex items-center justify-center"><ShoppingBag className="w-4 h-4"/></div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-body text-[10px] uppercase tracking-widest text-accent">{item.source}</span>
+                          <h4 className="font-display text-sm text-white mt-1 line-clamp-2">{item.title}</h4>
+                          <span className="font-body text-xs text-white/60 mt-1 block">{item.price}</span>
+                          <a 
+                            href={item.link} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[8px] uppercase tracking-[0.2em] text-white/30 hover:text-white mt-2 inline-block transition-colors"
+                          >
+                            View Source
+                          </a>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="font-body text-[10px] uppercase tracking-widest text-accent">{item.source}</span>
-                        <h4 className="font-display text-sm text-white mt-1 line-clamp-2">{item.title}</h4>
-                        <span className="font-body text-xs text-white/60 mt-1 block">{item.price}</span>
-                      </div>
-                    </div>
-                  </motion.a>
+                    </motion.div>
                 ))}
               </div>
             </motion.section>
@@ -464,29 +502,47 @@ const ProjectReveal = ({
 
               <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
                 {savedItems.map((item) => (
-                  <a
+                  <div
                     key={item.item_url}
-                    href={item.item_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-shrink-0 w-40 glass-crystal p-3 hover:bg-white/10 transition-all duration-200"
+                    className="flex-shrink-0 w-40 glass-crystal p-3 hover:bg-white/10 transition-all duration-200 group/saved relative"
                   >
-                    <div className="aspect-square mb-2 overflow-hidden bg-white/5">
+                    <div className="aspect-square mb-2 overflow-hidden bg-white/5 relative group/img">
                       {item.item_img && (
-                        <img
-                          src={`${API_BASE_URL}/${item.item_img}`}
-                          alt={item.item_name}
-                          className="w-full h-full object-cover"
-                        />
+                        <>
+                          <img
+                            src={`${API_BASE_URL}/${item.item_img}`}
+                            alt={item.item_name}
+                            className="w-full h-full object-cover"
+                          />
+                          <button 
+                            onClick={() => handleGenerateDesign(item.item_img, item.item_url)}
+                            disabled={generatingId === item.item_url}
+                            className={cn(
+                              "absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity",
+                              generatingId === item.item_url && "opacity-100"
+                            )}
+                          >
+                            {generatingId === item.item_url ? (
+                              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                            ) : (
+                              <Sparkles className="w-4 h-4 text-accent" />
+                            )}
+                          </button>
+                        </>
                       )}
                     </div>
                     <p className="font-display text-xs text-white line-clamp-2 mb-1">
                       {item.item_name}
                     </p>
-                    <p className="font-body text-[11px] text-white/70">
-                      {item.item_price}
-                    </p>
-                  </a>
+                    <div className="flex justify-between items-center">
+                      <p className="font-body text-[11px] text-white/70">
+                        {item.item_price}
+                      </p>
+                      <a href={item.item_url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="w-2.5 h-2.5 text-white/20 hover:text-white transition-colors" />
+                      </a>
+                    </div>
+                  </div>
                 ))}
               </div>
             </motion.section>
@@ -498,8 +554,28 @@ const ProjectReveal = ({
             animate={{ opacity: 1 }}
             transition={{ delay: 1, duration: 0.6 }}
           >
-            <p className="font-body text-xs uppercase tracking-widest text-white/40 mb-6">Love your new design?</p>
-            <button className="btn-editorial">Save This Design</button>
+            <p className="font-body text-xs uppercase tracking-widest text-white/40 mb-6">
+              {isProjectSaved ? "Design added to your collection" : "Love your new design?"}
+            </p>
+            <button 
+              onClick={handleSaveProject}
+              disabled={isProjectSaved || !generatedImage}
+              className={cn(
+                "px-8 py-3.5 rounded-xl font-body text-[9px] uppercase tracking-[0.3em] transition-all shadow-xl flex items-center gap-2 mx-auto",
+                isProjectSaved 
+                  ? "bg-accent text-white border border-accent/20" 
+                  : "bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-white/10"
+              )}
+            >
+              {isProjectSaved ? (
+                <>
+                  <Check className="w-3 h-3" />
+                  Saved to Projects
+                </>
+              ) : (
+                "Save This Design"
+              )}
+            </button>
           </motion.div>
         </motion.div>
       </div>

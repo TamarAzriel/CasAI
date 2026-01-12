@@ -10,7 +10,8 @@ import urllib.parse
 import json
 import re
 from dotenv import load_dotenv
-import google.generativeai as genai  # type: ignore
+from google import genai  # NEW SDK
+from google.genai import types
 
 from .clip import CLIPModel
 from .config import get_style_description
@@ -34,17 +35,17 @@ class Recommender:
 
         if not api_key:
             print("⚠️ Warning: API Key not found in .env file")
-            self.gemini_model = None
+            self.client = None
         else:
-            # 3. הגדרת המפתח מול הספרייה של גוגל
-            genai.configure(api_key=api_key)
+            # 3. הגדרת ה-Client החדש
             try:
-                # 4. יצירת המודל
-                self.gemini_model = genai.GenerativeModel('gemini-2.5-flash')
-                print("✅ Gemini Designer is ready!")
+                os.environ['GOOGLE_API_USE_REST'] = 'true'
+                self.client = genai.Client(api_key=api_key)
+                self.model_name = 'gemini-2.5-flash'
+                print(f"✅ Gemini Designer is ready with model: {self.model_name}")
             except Exception as e:
-                print(f"❌ Failed to initialize Gemini: {e}")
-                self.gemini_model = None
+                print(f"❌ Failed to initialize Gemini Client: {e}")
+                self.client = None
 
         # --- חילוץ מידות מה-CSV של איקאה בעת הטעינה ---
         def extract_dimensions(name):
@@ -102,13 +103,46 @@ class Recommender:
         similarities = np.dot(product_norms, query_norm)
         return similarities
 
+    def analyze_query(self, query_text: str, image_path: Optional[str] = None):
+        """
+        Analyses both text and image in ONE Gemini call to save time.
+        """
+        if not self.client:
+            return "None", None, None
+
+        try:
+            prompt = """
+            You are a furniture expert. Analyze the user request and image.
+            Return ONLY a JSON object: {"category": "...", "width": 120, "length": 60}
+            """
+            
+            contents = [prompt]
+            if query_text: contents.append(f"User request: {query_text}")
+            if image_path: contents.append(Image.open(image_path))
+                
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=contents
+            )
+            
+            json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                return data.get('category', 'None'), data.get('width'), data.get('length')
+                
+        except Exception as e:
+            print(f"⚠️ Error in combined analysis: {e}")
+            
+        return "None", None, None
+
     def recommend(
             self,
             query_text: Optional[str] = None,
             query_image_path: Optional[str] = None,
             top_k: int = 10,
             alpha: float = 0.5,
-            category_filter=None
+            category_filter=None,
+            precomputed_dims=(None, None)
     ) -> pd.DataFrame:
         """
         Get top-k recommendations with SMART category filtering.
@@ -119,77 +153,45 @@ class Recommender:
         df_to_search = self.embeddings_df.copy()
 
         # 2. לוגיקת סינון קטגוריה משופרת (Smart Filtering)
-        if category_filter and category_filter != 'None':
-            print(f"🔍 Trying to filter by category: '{category_filter}'")
-
-            # שלב א': ניסיון להתאמה מדויקת (Exact Match)
-            exact_match = df_to_search[df_to_search['item_cat'] == category_filter]
-
+        target_cat = category_filter
+        if target_cat and target_cat != 'None':
+            print(f"🔍 Trying to filter by category: '{target_cat}'")
+            # ... (rest of filtering logic)
+            exact_match = df_to_search[df_to_search['item_cat'] == target_cat]
             if len(exact_match) > 0:
                 df_to_search = exact_match
-                print(f"   ✅ Found exact match! ({len(df_to_search)} items)")
             else:
-                # שלב ב': ניסיון להתאמה חלקית (Partial Match)
-                print(f"   ⚠️ No exact match. Trying partial match...")
-
-                # מנקים מילים כמו 'frame' ומנרמלים לאותיות קטנות
-                # לדוגמה: 'Bed frame' יהפוך ל-'bed' וימצא את 'Double beds'
-                search_term = category_filter.lower().replace("frame", "").replace("dining", "").strip()
-
-                # חיפוש חלקי (מכיל את המילה)
+                search_term = target_cat.lower().replace("frame", "").replace("dining", "").strip()
                 partial_match = df_to_search[
                     df_to_search['item_cat'].astype(str).str.lower().str.contains(search_term, regex=False)
                 ]
-
                 if len(partial_match) > 0:
                     df_to_search = partial_match
-                    print(f"   ✅ Found partial match for '{search_term}'! ({len(df_to_search)} items)")
-                else:
-                    # שלב ג': כישלון בסינון
-                    print(f"   ❌ Filter failed completely for '{category_filter}'.")
-                    print("   💡 DEBUG: Here are the available categories in your CSV:")
-                    # הדפסת הקטגוריות הקיימות כדי שתוכלי לתקן במידת הצורך
-                    try:
-                        print(sorted(self.embeddings_df['item_cat'].astype(str).unique()))
-                    except:
-                        print("Could not print categories.")
-
-                    print("   --- Falling back to full database search ---")
-                    # כאן הוא חוזר לחפש בהכל (זה מה שגרם לארונות להופיע, אבל לפחות נדע למה)
 
         # 3. חישוב דמיון ויזואלי
         product_vectors = np.array([v for v in df_to_search['vector'].values])
         similarities = self._calculate_similarities(query_vector, product_vectors)
         df_to_search['similarity'] = similarities
 
-        # 4. חישוב עונש על גודל (Size Penalty)
-        target_w, target_l = None, None
-
-        # מנסים לחשב גודל רק אם יש תמונה
-        if query_image_path:
-            target_w, target_l = self.estimate_dimensions(query_image_path)
+        # 4. שימוש במידות שהוערכו מראש (כדי לחסוך קריאת API)
+        target_w, target_l = precomputed_dims
+        
+        # אם לא הועברו מידות, והמשתמש לא סיפק קטגוריה (שאולי כבר הכילה מידות), מנסים פעם אחרונה
+        if target_w is None and query_image_path:
+             # רק אם ממש חייבים, עושים קריאה נפרדת (אבל בשימוש נכון זה לא יקרה)
+             target_w, target_l = self.estimate_dimensions(query_image_path)
 
         def calculate_final_score(row):
             score = row['similarity']
-
-            # אם אין מידות להשוואה, מחזירים ציון רגיל
             if target_w is None or pd.isna(row.get('width')):
                 return score
-
-            # חישוב עונש על חוסר התאמה
             diff_w = abs(row['width'] - target_w) / max(target_w, 1)
             diff_l = abs(row['length'] - target_l) / max(target_l, 1)
             penalty = (diff_w + diff_l) / 2
-
-            # הפחתת הציון
             return score - (penalty * 0.4)
 
         df_to_search['final_score'] = df_to_search.apply(calculate_final_score, axis=1)
-
-        # 5. מיון והחזרה
         top_results = df_to_search.sort_values('final_score', ascending=False).head(top_k).copy()
-
-        print(f"✅ Returning {len(top_results)} recommendations")
         return top_results
 
     def search_google_shopping(self, query: str) -> list[dict]:
@@ -232,33 +234,95 @@ class Recommender:
             return []
 
     def chat_with_designer(self, image_path, messages):
-        """ניהול שיחה עם Gemini Pro Vision."""
+        """ניהול שיחה עם Gemini והצעת פריטים מהמאגר באופן אוטומטי."""
+        if not self.client:
+            return {"text": "Designer service not available. Please check your API key.", "recommendations": []}
+            
         try:
-            img = Image.open(image_path)
-            prompt_parts = [
-                "You are CasAI, an expert interior designer. Analyze the image and answer the user's questions.",
-                "Be helpful, concise, and professional. If the user asks in Hebrew, answer in Hebrew.",
-                img
-            ]
-            history_text = "\nChat History:\n"
+            history_text = "Chat History:\n"
             for msg in messages:
                 role = "User" if msg['role'] == "user" else "CasAI"
                 history_text += f"{role}: {msg['content']}\n"
 
-            prompt_parts.append(history_text)
-            prompt_parts.append("\nCasAI (Your response):")
+            prompt = f"""
+            You are CasAI, an expert interior designer. Analyze the situation and answer the user's questions.
+            Maintain a sophisticated, authoritative, and editorial tone. If the user asks in Hebrew, answer in Hebrew.
+            
+            IMPORTANT DIRECTIONS:
+            1. Be direct. Avoid generic conversational openings like "Certainly!", "Of course!", "Great question!", or "I'd be happy to help". Go straight to the professional advice.
+            2. If you suggest adding or changing any furniture (e.g. "a wooden table", "a grey sofa", "a gold lamp"), 
+               you MUST provide a corresponding search query in the 'search_queries' list.
+            2. The 'search_queries' MUST be in ENGLISH ONLY (e.g., "minimalist grey sofa", "wooden dining table") 
+               to ensure accurate matching in our database, even if you respond to the user in Hebrew.
+            3. Your response MUST be a valid JSON object.
+            
+            JSON format:
+            {{
+              "response_text": "Your helpful text response here...",
+              "search_queries": ["search term 1", "search term 2"] // Optional: keywords for IKEA catalog search
+            }}
 
-            response = self.gemini_model.generate_content(prompt_parts)
-            return response.text
+            {history_text}
+            CasAI (Response in JSON):
+            """
+            
+            contents = [prompt]
+            if image_path and os.path.exists(image_path):
+                try:
+                    contents.append(Image.open(image_path))
+                except:
+                    pass
+            
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=contents
+            )
+            
+            # Extract JSON from response
+            json_text = response.text.strip()
+            if "```json" in json_text:
+                json_text = json_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_text:
+                json_text = json_text.split("```")[1].strip()
+            
+            try:
+                data = json.loads(json_text)
+                response_text = data.get("response_text", "")
+                search_queries = data.get("search_queries", [])
+                
+                all_recs = []
+                if search_queries:
+                    for query in search_queries:
+                        # Search for the best matches in our database
+                        recs = self.recommend(query_text=query, top_k=2)
+                        for _, row in recs.iterrows():
+                            all_recs.append({
+                                'item_name': row.get('item_name', ''),
+                                'item_price': row.get('item_price', ''),
+                                'item_url': row.get('product_link', ''),
+                                'item_img': f"/data/ikea_il_images/{row['image_file']}" if pd.notna(row.get('image_file')) else row.get('image_url', '')
+                            })
+
+                return {
+                    "text": response_text,
+                    "recommendations": all_recs
+                }
+            except:
+                # Fallback if Gemini returns plain text instead of JSON
+                return {
+                    "text": response.text,
+                    "recommendations": []
+                }
+
         except Exception as e:
             print(f"Gemini Error: {e}")
-            return "Sorry, there was a communication issue with the designer."
+            return {"text": "Sorry, I'm having trouble thinking right now. Let's try again in a moment.", "recommendations": []}
 
     def estimate_dimensions(self, image_path):
         """
         משתמש ב-Gemini להערכת מידות הרהיט מהתמונה.
         """
-        if not self.gemini_model:
+        if not self.client:
             return None, None
 
         try:
@@ -269,19 +333,17 @@ class Recommender:
             1. Width (in cm)
             2. Length/Depth (in cm)
 
-            Return ONLY a JSON object like this, with no extra text: 
-            {"width": 160, "length": 200}
+            Return ONLY a JSON object: {"width": 160, "length": 200}
             """
-            response = self.gemini_model.generate_content(contents=[prompt, img])
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[prompt, img]
+            )
 
-            # חילוץ ה-JSON מתוך הטקסט
             json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group())
-                w = data.get('width')
-                l = data.get('length')
-                print(f"📏 Gemini estimated dimensions: {w}x{l} cm")
-                return w, l
+                return data.get('width'), data.get('length')
 
         except Exception as e:
             print(f"⚠️ Error estimating dimensions: {e}")

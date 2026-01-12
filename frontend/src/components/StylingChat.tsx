@@ -4,11 +4,19 @@ import { Send, Image as ImageIcon, X } from "lucide-react";
 
 const API_BASE_URL = "http://127.0.0.1:5000";
 
+interface Product {
+  item_name: string;
+  item_price: string;
+  item_img: string;
+  item_url: string;
+}
+
 interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
   has_image?: boolean;
+  recommendations?: Product[];
 }
 
 interface StylingChatProps {
@@ -82,7 +90,8 @@ const StylingChat = ({ isOpen, onClose }: StylingChatProps) => {
       const aiMsg: Message = {
         id: Date.now() + 1,
         role: "assistant",
-        content: data.response
+        content: data.response,
+        recommendations: data.recommendations
       };
       
       setMessages(prev => [...prev, aiMsg]);
@@ -105,162 +114,224 @@ const StylingChat = ({ isOpen, onClose }: StylingChatProps) => {
       {isOpen && (
         <>
           <motion.div 
-            className="fixed inset-0 bg-black/50 z-40 backdrop-blur-lg"
+            className="fixed inset-0 bg-black/40 z-40 backdrop-blur-md"
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.div 
-            className="fixed inset-0 z-50 flex items-center justify-center p-6"
-            initial={{ opacity: 0, scale: 0.9 }} 
-            animate={{ opacity: 1, scale: 1 }} 
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ type: "spring", damping: 20, stiffness: 150 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 pointer-events-none"
+            initial={{ opacity: 0, scale: 1.05, filter: "blur(20px)" }} 
+            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }} 
+            exit={{ opacity: 0, scale: 1.05, filter: "blur(20px)" }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="w-full max-w-2xl max-h-[75vh] bg-white/10 backdrop-blur-2xl border border-white/15 rounded-3xl flex flex-col shadow-2xl overflow-hidden">
-              {/* Header */}
-              <div className="p-8 border-b border-white/10 flex justify-between items-start">
-                <h2 className="text-white font-light text-3xl tracking-widest">AI Chat Stylist</h2>
-                <button onClick={onClose} className="text-white/40 hover:text-white/60 transition">
-                  <X className="w-6 h-6" />
+            {/* Dynamic Architectural Lighting */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <motion.div 
+                animate={{ 
+                  scale: [1, 1.2, 1],
+                  opacity: [0.3, 0.5, 0.3],
+                  x: [0, 50, 0],
+                  y: [0, -30, 0]
+                }}
+                transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                className="absolute top-1/4 -left-1/4 w-[800px] h-[800px] bg-accent/10 rounded-full blur-[150px]"
+              />
+              <motion.div 
+                animate={{ 
+                  scale: [1.2, 1, 1.2],
+                  opacity: [0.2, 0.4, 0.2],
+                  x: [0, -50, 0],
+                  y: [0, 30, 0]
+                }}
+                transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                className="absolute bottom-1/4 -right-1/4 w-[600px] h-[600px] bg-white/5 rounded-full blur-[120px]"
+              />
+            </div>
+
+            <div className="glass-crystal w-full max-w-3xl h-[85vh] pointer-events-auto flex flex-col shadow-[0_50px_100px_rgba(0,0,0,0.4),0_0_80px_rgba(197,160,89,0.1)] overflow-hidden border border-white/10 rounded-[3rem] relative">
+              {/* Internal Accent Line */}
+              <div className="absolute inset-[1px] rounded-[3rem] border border-white/5 pointer-events-none" />
+              
+              {/* Header - Editorial Style */}
+              <div className="p-12 md:p-14 flex justify-between items-start relative bg-white/[0.01]">
+                <div className="space-y-6">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: 60 }}
+                    transition={{ delay: 0.5, duration: 1 }}
+                    className="h-px bg-accent/60" 
+                  />
+                  <div className="space-y-2">
+                    <span className="font-body text-[10px] uppercase tracking-[0.8em] text-accent/80 font-medium block">Bespoke Dialogue</span>
+                    <h2 className="font-display text-5xl font-light text-white tracking-tight">Stylist AI</h2>
+                  </div>
+                </div>
+                <button 
+                  onClick={onClose} 
+                  className="p-5 hover:bg-white/5 rounded-full transition-all group -mt-4 border border-transparent hover:border-white/10"
+                >
+                  <X className="w-6 h-6 text-white/20 group-hover:text-white transition-colors" />
                 </button>
               </div>
 
-              {/* Chat Area */}
-              <div className="flex-1 p-8 space-y-6 overflow-hidden flex flex-col">
+              {/* Chat Area - Focused & Clean */}
+              <div className="flex-1 overflow-y-auto scrollbar-hide px-12 md:px-20 py-12 space-y-20">
                 {messages.length === 0 && (
-                  <div className="flex flex-col items-center justify-center flex-1">
-                    {/* Welcome Message */}
-                    <div className="text-center max-w-md">
-                      <ImageIcon className="w-16 h-16 text-white/40 mb-6 mx-auto" />
-                      <h3 className="text-white font-light text-xl tracking-widest mb-4">UPLOAD A ROOM PHOTO</h3>
-                      <p className="text-white/50 font-light text-sm leading-relaxed">Upload a photo of your room, and I'll analyze the space and provide personalized styling tips and furniture recommendations tailored to your aesthetic.</p>
-                    </div>
+                  <div className="flex flex-col items-center justify-center h-full text-center space-y-12 opacity-20">
+                    <motion.div 
+                      animate={{ y: [0, -10, 0] }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                      className="w-24 h-24 border border-white/10 rounded-full flex items-center justify-center"
+                    >
+                      <ImageIcon className="w-8 h-8 text-white" />
+                    </motion.div>
+                    <p className="font-body text-[12px] text-white font-light tracking-[0.7em] uppercase max-w-xs leading-[2.5]">
+                      Describe your architectural vision to begin curation.
+                    </p>
                   </div>
                 )}
                 
-                {messages.length > 0 && (
-                  <div className="flex-1 overflow-y-auto space-y-6 pb-4">
-                    {messages.map((msg) => (
-                      <div key={msg.id} className={`flex gap-4 ${msg.role === "user" ? "flex-row-reverse justify-end" : ""}`}>
-                        {/* Avatar */}
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          msg.role === "user" 
-                            ? "bg-white/20" 
-                            : "bg-white/10"
-                        }`}>
-                          <span className="text-xs text-white/60">{msg.role === "user" ? "U" : "AI"}</span>
+                {messages.map((msg) => (
+                  <motion.div 
+                    key={msg.id} 
+                    initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    transition={{ duration: 0.8 }}
+                    className="flex flex-col space-y-8"
+                  >
+                    {/* Message Header/Label */}
+                    <div className={`flex items-center gap-8 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                      <span className="font-body text-[9px] uppercase tracking-[0.6em] text-white/30 font-semibold italic">
+                        {msg.role === "user" ? "Inquiry" : "Designer Response"}
+                      </span>
+                      <div className="flex-1 h-px bg-white/[0.03]" />
+                    </div>
+
+                    <div className={`flex flex-col ${msg.role === "user" ? "items-end text-right" : "items-start text-right"} dir-rtl`}>
+                      {msg.has_image && msg.role === "user" && (
+                        <div className="mb-10 rounded-[2.5rem] overflow-hidden border border-white/10 shadow-2xl max-w-[85%] bg-black">
+                          <img src={uploadedImagePreview!} alt="Space" className="w-full object-cover max-h-[500px] opacity-90" />
                         </div>
-                        
-                        {/* Message Container */}
-                        <div className={`max-w-[65%] space-y-3 ${msg.role === "user" ? "items-end flex flex-col" : ""}`}>
-                           {/* Image Preview */}
-                           {msg.has_image && msg.role === "user" && (
-                              <motion.div 
-                                className="rounded-xl overflow-hidden border border-white/20 shadow-lg"
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                              >
-                                  <img src={uploadedImagePreview!} alt="Room" className="w-full h-auto max-h-48 object-cover" />
-                              </motion.div>
-                           )}
-                           
-                           {/* Message Bubble */}
-                           {msg.content && (
-                             <motion.div 
-                               className={`px-5 py-4 rounded-xl text-sm leading-relaxed whitespace-pre-wrap font-light ${
-                                 msg.role === "user" 
-                                   ? "bg-white/15 text-white" 
-                                   : "bg-white/8 text-white/80"
-                               }`}
-                               initial={{ opacity: 0, y: 10 }}
-                               animate={{ opacity: 1, y: 0 }}
-                               transition={{ delay: 0.1 }}
-                             >
-                               {msg.content}
-                             </motion.div>
-                           )}
+                      )}
+                      
+                      <div 
+                        dir="rtl"
+                        className={`max-w-[95%] text-[13px] font-light leading-relaxed tracking-wide font-body text-white/80 whitespace-pre-wrap ${msg.role === "assistant" ? "pr-8 border-r-2 border-accent/40" : "pr-8 border-r border-white/10"}`}
+                      >
+                        {msg.content}
+                      </div>
+
+                      {/* Product Recommendations within Chat */}
+                      {msg.role === "assistant" && msg.recommendations && msg.recommendations.length > 0 && (
+                        <div className="mt-10 flex gap-6 overflow-x-auto pb-8 editorial-scrollbar w-full -mr-16 pr-16">
+                          {msg.recommendations.map((product, pIdx) => (
+                            <motion.a
+                              key={pIdx}
+                              href={product.item_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              initial={{ opacity: 0, x: 20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: 0.2 + (pIdx * 0.1), duration: 0.6 }}
+                              className="min-w-[200px] max-w-[200px] group/card bg-white/[0.02] border border-white/5 p-4 rounded-2xl hover:bg-white/[0.05] transition-all hover:border-accent/20"
+                            >
+                              <div className="aspect-[4/5] rounded-xl overflow-hidden mb-4 bg-black shadow-lg">
+                                <img 
+                                  src={`${API_BASE_URL}${product.item_img}`} 
+                                  alt={product.item_name}
+                                  className="w-full h-full object-cover group-hover/card:scale-110 transition-transform duration-1000 ease-out"
+                                />
+                              </div>
+                              <p className="text-[10px] text-white/60 font-medium line-clamp-2 mb-2 h-7 leading-tight tracking-wide uppercase font-body">{product.item_name}</p>
+                              <div className="flex justify-between items-center">
+                                <span className="text-[9px] text-accent font-body tracking-[0.3em] font-semibold">{product.item_price}</span>
+                                <div className="w-8 h-px bg-accent/20 group-hover/card:w-12 transition-all duration-500" />
+                              </div>
+                            </motion.a>
+                          ))}
                         </div>
-                      </div>
-                    ))}
-                    {isLoading && (
-                      <div className="flex gap-4">
-                         <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
-                           <span className="text-xs text-white/40">…</span>
-                         </div>
-                         <div className="bg-white/8 px-4 py-3 rounded-lg">
-                           <div className="flex gap-1 h-2 items-center">
-                             <span className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}/>
-                             <span className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}/>
-                             <span className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}/>
-                           </div>
-                         </div>
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+                
+                {isLoading && (
+                  <div className="flex items-center gap-8 px-6">
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                      className="w-5 h-5 border-2 border-accent/10 border-t-accent rounded-full" 
+                    />
+                    <span className="text-[10px] uppercase tracking-[0.7em] text-accent/60 font-medium animate-pulse">Curating Architectural Excellence...</span>
                   </div>
                 )}
+                <div ref={messagesEndRef} />
               </div>
 
-              {/* Input Area */}
-              <div className="p-8 border-t border-white/10 space-y-5">
-                 {selectedFile && (
-                   <motion.div 
-                     className="flex items-center gap-3 bg-white/5 p-4 rounded-lg w-fit border border-white/10 pr-4"
-                     initial={{ opacity: 0, y: 10 }}
-                     animate={{ opacity: 1, y: 0 }}
-                   >
-                      <img src={uploadedImagePreview!} className="w-12 h-12 rounded object-cover" />
-                      <div className="flex-1">
-                        <p className="text-xs text-white/70 font-light">Photo attached</p>
-                        <p className="text-xs text-white/40">Ready to analyze</p>
-                      </div>
-                      <button onClick={() => { setSelectedFile(null); setUploadedImagePreview(null); }} className="hover:bg-white/10 rounded p-1 transition">
-                        <X className="w-3 h-3 text-white/40" />
-                      </button>
-                   </motion.div>
-                 )}
+              {/* Input Area - High-End Architectural Bar */}
+              <div className="px-12 md:px-16 pb-16 pt-8 bg-gradient-to-t from-black/40 to-transparent relative">
+                 <AnimatePresence>
+                   {selectedFile && (
+                     <motion.div 
+                       className="mb-10 flex items-center gap-10 bg-white/[0.03] p-6 border border-white/10 rounded-3xl backdrop-blur-xl"
+                       initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                       animate={{ opacity: 1, y: 0, scale: 1 }}
+                       exit={{ opacity: 0, scale: 0.95, filter: "blur(10px)" }}
+                     >
+                        <div className="relative group">
+                          <img src={uploadedImagePreview!} className="w-20 h-20 rounded-2xl object-cover shadow-2xl border border-white/10 group-hover:scale-105 transition-transform duration-500" />
+                          <div className="absolute inset-0 bg-accent/20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] uppercase tracking-[0.5em] text-accent font-bold">Visual Curation Context</p>
+                          <p className="text-[11px] text-white/40 truncate mt-2 font-light italic">{selectedFile.name}</p>
+                        </div>
+                        <button onClick={() => { setSelectedFile(null); setUploadedImagePreview(null); }} className="p-4 text-white/20 hover:text-white transition-all hover:bg-white/5 rounded-full">
+                          <X className="w-5 h-5" />
+                        </button>
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
 
-                 <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSend();
-                        }
-                    }}
-                    placeholder={messages.length === 0 ? "Describe your style preferences..." : "Ask a follow-up question..."}
-                    rows={2}
-                    className="w-full bg-transparent text-white placeholder-white/30 focus:outline-none resize-none font-light text-sm border-b border-white/10 pb-3"
-                 />
-
-                 <div className="flex gap-3 items-center pt-2">
-                   <input 
-                     type="file" 
-                     ref={fileInputRef}
-                     onChange={handleFileChange}
-                     accept="image/*"
-                     className="hidden"
-                   />
-                   <button 
-                     onClick={() => fileInputRef.current?.click()}
-                     className="text-white/40 hover:text-white/60 transition"
-                     title="Upload Image"
-                   >
-                     <ImageIcon className="w-5 h-5" />
-                   </button>
-                   <div className="flex-1"></div>
-                   <button 
-                     onClick={handleSend}
-                     disabled={isLoading || (!input && !selectedFile) || (!selectedFile && !serverImageFilename)}
-                     className="flex items-center gap-2 px-8 py-2 bg-black/40 text-white/70 rounded-lg hover:bg-black/60 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed transition font-light text-sm tracking-widest uppercase border border-white/10"
-                   >
-                     <Send className="w-4 h-4" />
-                     Send
-                   </button>
-                 </div>
+                 <motion.div 
+                    layout
+                    className="flex items-center gap-10 group bg-white/[0.03] p-5 rounded-[2rem] border border-white/10 hover:border-accent/30 transition-all duration-700 shadow-2xl"
+                  >
+                   <div className="flex-1 pl-4">
+                     <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                handleSend();
+                            }
+                        }}
+                        placeholder="Share your architectural vision..."
+                        className="w-full bg-transparent text-white placeholder:text-white/10 focus:outline-none font-light text-[14px] font-body caret-accent"
+                     />
+                   </div>
+                   
+                   <div className="flex items-center gap-6 border-l border-white/10 pl-8">
+                     <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+                     <button 
+                       onClick={() => fileInputRef.current?.click()}
+                       className="text-white/20 hover:text-accent transition-all p-3 hover:scale-110 active:scale-90"
+                     >
+                       <ImageIcon className="w-6 h-6" />
+                     </button>
+                     <button 
+                       onClick={handleSend}
+                       disabled={isLoading || (!input && !selectedFile)}
+                       className="px-12 py-4 bg-white/[0.03] hover:bg-accent text-white hover:text-black border border-white/10 hover:border-accent rounded-2xl font-body text-[11px] uppercase tracking-[0.6em] font-bold transition-all duration-500 disabled:opacity-5 active:scale-95 whitespace-nowrap shadow-xl"
+                     >
+                       Transmit
+                     </button>
+                   </div>
+                 </motion.div>
               </div>
             </div>
           </motion.div>

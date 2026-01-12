@@ -1,9 +1,5 @@
 """Flask backend server for CasAI application."""
 
-# Fix SSL certificate verification issues
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
-
 import sys
 from typing import Union
 from flask import Flask, request, jsonify, send_from_directory, Response
@@ -22,21 +18,20 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 # טעינת משתני סביבה
 load_dotenv()
 
-# הגדרת המפתח של ג'מיני
+# הגדרת ה-Client של ג'מיני החדש
 api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("AIChat_API_KEY")
+client = None
 if api_key:
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
 # מודל גלובלי לשימוש בפונקציות עזר
-try:
-    model = genai.GenerativeModel('gemini-2.5-flash')
-except:
-    model = None
+GEMINI_MODEL = 'gemini-2.5-flash'
 
 from core.models import ModelLoader
 from core.config import (
@@ -136,13 +131,12 @@ def chat_endpoint():
     if "image" in request.files:
         img = request.files["image"]
         image_filename = f"chat_{img.filename}"
-        save_path = UPLOADS_DIR / image_filename
-        img.save(str(save_path))
+        save_path = str(UPLOADS_DIR / image_filename)
+        img.save(save_path)
     elif image_filename:
-        save_path = UPLOADS_DIR / image_filename
-    else:
-        return jsonify({"error": "No image provided"}), 400
-
+        save_path = str(UPLOADS_DIR / image_filename)
+    
+    # עכשיו אנחנו לא מחזירים 400 אם אין תמונה - פשוט שולחים None
     messages_str = request.form.get("messages", "[]")
     try:
         messages = json.loads(messages_str)
@@ -153,13 +147,14 @@ def chat_endpoint():
         return jsonify({"error": "Service unavailable"}), 500
 
     # קריאה לצ'אט - נסמכת על כך שיש מספיק מכסה פנויה
-    ai_response = recommendation_service.chat_with_designer(
-        image_path=str(save_path),
+    chat_data = recommendation_service.chat_with_designer(
+        image_path=save_path,
         messages=messages
     )
 
     return jsonify({
-        "response": ai_response,
+        "response": chat_data["text"],
+        "recommendations": chat_data["recommendations"],
         "image_filename": image_filename
     })
 
@@ -189,7 +184,27 @@ def generate_new_design() -> Union[Response, tuple[Response, int]]:
             return jsonify({"error": f"Original file not found: {filename}"}), 404
 
         crop_path = url_to_file_path(selected_crop_url)
-        rec_path = url_to_file_path(recommendation_image_url)
+        
+        # טיפול בתמונה של ההמלצה: יכולה להיות נתיב מקומי או URL חיצוני
+        rec_path = None
+        if recommendation_image_url.startswith("http"):
+            # הורדת תמונה חיצונית לתיקייה זמנית
+            import requests
+            from pathlib import Path
+            temp_dir = UPLOADS_DIR / "temp"
+            temp_dir.mkdir(exist_ok=True)
+            temp_path = temp_dir / f"temp_rec_{int(time.time())}.jpg"
+            
+            response = requests.get(recommendation_image_url, stream=True, timeout=10)
+            if response.status_code == 200:
+                with open(temp_path, 'wb') as f:
+                    for chunk in response.iter_content(1024):
+                        f.write(chunk)
+                rec_path = temp_path
+            else:
+                return jsonify({"error": "Failed to download recommendation image"}), 400
+        else:
+            rec_path = url_to_file_path(recommendation_image_url)
 
         save_path = os.path.join(GENERATED_DIR, "generated.png")
 
@@ -230,11 +245,14 @@ def get_exact_category(user_query):
     Return ONLY the category name. If no category fits, return 'None'.
     """
 
-    if not model:
+    if not client:
         return "None"
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt
+        )
         return response.text.strip()
     except Exception as e:
         print(f"Gemini category error: {e}")
@@ -264,19 +282,20 @@ def recommend():
             if detections:
                 query_image_path = detections[0]["path"]
 
-        # זיהוי קטגוריה (API Call 1)
-        target_cat = "None"
-        if text.strip():
-            target_cat = get_exact_category(text.strip())
-            print(f"🔍 Gemini identified category: {target_cat}")
+        # ניתוח משולב של קטגוריה ומידות בקריאה אחת ל-AI (חוסך זמן יקר!)
+        target_cat, est_w, est_l = "None", None, None
+        if text.strip() or query_image_path:
+            target_cat, est_w, est_l = recommendation_service.analyze_query(text.strip(), query_image_path)
+            print(f"🔍 AI Analysis: Category={target_cat}, Dims={est_w}x{est_l}")
 
-        # קבלת המלצות (API Call 2 - בתוך הפונקציה recommend מתבצע חישוב המידות פעם אחת)
+        # קבלת המלצות (משתמש בנתונים שכבר חושבו)
         results = recommendation_service.recommend(
             query_text=text.strip(),
             query_image_path=query_image_path,
             top_k=10,
             alpha=0.9,
-            category_filter=target_cat
+            category_filter=target_cat,
+            precomputed_dims=(est_w, est_l)
         )
 
         if 'vector' in results.columns:

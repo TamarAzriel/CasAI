@@ -6,51 +6,51 @@
 
 @layer base {
   :root {
-    /* CasAI Luxury Palette */
-    --background: 40 20% 97%; /* #F9F8F6 - Raw Silk/Bone */
-    --foreground: 0 0% 10%; /* #1A1A1A - Almost Black */
+    /* CasAI Luxury Palette - Dark by Default */
+    --background: 0 0% 8%; /* #141414 */
+    --foreground: 40 20% 97%; /* #F9F8F6 - Bone */
 
-    --card: 40 20% 97%;
-    --card-foreground: 0 0% 10%;
+    --card: 0 0% 10%;
+    --card-foreground: 40 20% 97%;
 
-    --popover: 40 20% 97%;
-    --popover-foreground: 0 0% 10%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 40 20% 97%;
 
-    --primary: 0 0% 10%; /* Almost Black for buttons */
-    --primary-foreground: 0 0% 100%; /* White text on primary */
+    --primary: 40 20% 97%;
+    --primary-foreground: 0 0% 10%;
 
-    --secondary: 40 20% 94%;
-    --secondary-foreground: 0 0% 10%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 40 20% 97%;
 
-    --muted: 40 15% 92%;
-    --muted-foreground: 0 0% 40%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
 
     --accent: 41 45% 55%; /* #C5A059 - Muted Gold */
     --accent-foreground: 0 0% 10%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 40 20% 97%;
 
-    --border: 40 15% 88%;
-    --input: 40 15% 88%;
-    --ring: 0 0% 10%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 40 20% 97%;
 
     --radius: 0px; /* SHARP corners - no soft edges */
 
     /* Glass Effect Variables */
-    --glass-bg: rgba(255, 255, 255, 0.08);
-    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
     --glass-blur: 20px;
 
     /* Sidebar defaults */
-    --sidebar-background: 40 20% 97%;
-    --sidebar-foreground: 0 0% 10%;
-    --sidebar-primary: 0 0% 10%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 40 15% 92%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 40 15% 88%;
-    --sidebar-ring: 0 0% 10%;
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 40 20% 97%;
+    --sidebar-primary: 40 20% 97%;
+    --sidebar-primary-foreground: 0 0% 10%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 40 20% 97%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 40 20% 97%;
   }
 
   .dark {
@@ -161,6 +161,39 @@
 }
 
 @layer utilities {
+  /* Hide number input spinners globally */
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Custom Editorial Scrollbar - Minimalist & Sleek */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full transition-colors;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-accent/40;
+  }
+
+  /* Remove scrollbar buttons (the ugly arrows) */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+
   /* Text Shadow for readability on images */
   .text-shadow-editorial {
     text-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
