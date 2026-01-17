@@ -1,9 +1,10 @@
 import { motion } from "framer-motion";
+import { formatPrice } from "@/lib/utils";
 
 interface Product {
   item_name: string;
   item_cat: string;
-  item_price: number;
+  item_price: number | string;
   item_url: string;
   item_img: string;
   similarity?: number;
@@ -68,7 +69,7 @@ const SearchResults = ({ results }: SearchResultsProps) => {
                 </h3>
                 <div className="flex justify-between items-end mt-6 border-t border-gray-100 pt-6">
                   <span className="font-display text-xl text-gray-900">
-                    ₪{item.item_price}
+                    {formatPrice(item.item_price)}
                   </span>
                   <a 
                     href={item.item_url} 

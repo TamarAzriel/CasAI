@@ -50,10 +50,18 @@ class DesignGenerationService:
             user_description = prompt if (prompt and prompt.strip()) else f"a new {item_name}"
 
             final_prompt = (
-                f"In the original room image, please replace the object shown in the crop image "
-                f"with the following: {user_description}. "
-                f"Use the recommendation image as a reference for the exact style and design. "
-                f"Ensure the result integrates naturally with the room's lighting, shadows, and perspective."
+                f"You are an expert interior designer. I have provided three images: \n"
+                f"1. A ROOM image (the base environment).\n"
+                f"2. A CROP image (the specific object to be REMOVED AND REPLACED).\n"
+                f"3. A RECOMMENDATION image (the exact new IKEA item to insert).\n\n"
+                f"TASK: Completely REMOVE the object shown in the CROP image from the ROOM image and replace it with the furniture from the RECOMMENDATION image.\n"
+                f"STRICT RULES:\n"
+                f"- THE OBJECT FROM THE CROP IMAGE MUST BE FULLY DELETED. It should not be visible behind or under the new furniture.\n"
+                f"- PRESERVE AND KEEP any small decor items (like candles or cushions) that were on the original furniture if they make sense to stay.\n"
+                f"- ALL OTHER furniture, walls, floor, curtains, and architectural elements in the room MUST REMAIN 100% UNCHANGED.\n"
+                f"- Use the EXACT design, shape (e.g., L-shape, round, etc.), and material from the RECOMMENDATION image.\n"
+                f"- Ensure the new furniture is scaled correctly and matches the room's perspective.\n"
+                f"- User context: {user_description}."
             )
             print(f"📝 Prompt instruction: {final_prompt}")
 
@@ -78,6 +86,7 @@ class DesignGenerationService:
                 model="gemini-3-pro-image-preview", 
                 contents=contents,
                 config=types.GenerateContentConfig(
+                    temperature=0.1,
                     response_modalities=['TEXT', 'IMAGE'], # מבקש גם טקסט וגם תמונה
                     image_config=types.ImageConfig(
                         aspect_ratio=aspect_ratio,

@@ -122,7 +122,8 @@ class Recommender:
                 
             response = self.client.models.generate_content(
                 model=self.model_name,
-                contents=contents
+                contents=contents,
+                config=types.GenerateContentConfig(temperature=0.1)
             )
             
             json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
@@ -246,20 +247,18 @@ class Recommender:
 
             prompt = f"""
             You are CasAI, an expert interior designer. Analyze the situation and answer the user's questions.
-            Maintain a sophisticated, authoritative, and editorial tone. If the user asks in Hebrew, answer in Hebrew.
+            Be helpful, concise, and professional. If the user asks in Hebrew, answer in Hebrew.
             
             IMPORTANT DIRECTIONS:
-            1. Be direct. Avoid generic conversational openings like "Certainly!", "Of course!", "Great question!", or "I'd be happy to help". Go straight to the professional advice.
-            2. If you suggest adding or changing any furniture (e.g. "a wooden table", "a grey sofa", "a gold lamp"), 
-               you MUST provide a corresponding search query in the 'search_queries' list.
-            2. The 'search_queries' MUST be in ENGLISH ONLY (e.g., "minimalist grey sofa", "wooden dining table") 
-               to ensure accurate matching in our database, even if you respond to the user in Hebrew.
-            3. Your response MUST be a valid JSON object.
+            1. Your advice should be specific. If you suggest a piece of furniture, describe its style, material, and color.
+            2. For every specific piece of furniture you recommend in your text, you MUST provide a highly descriptive search query in the 'search_queries' list.
+            3. The 'search_queries' should be in English and include the type, style, and color (e.g., "minimalist black metal coffee table" instead of just "table").
+            4. Your response MUST be a valid JSON object.
             
             JSON format:
             {{
-              "response_text": "Your helpful text response here...",
-              "search_queries": ["search term 1", "search term 2"] // Optional: keywords for IKEA catalog search
+              "response_text": "Your helpful text response here (in Hebrew if the user asked in Hebrew)...",
+              "search_queries": ["descriptive search term 1", "descriptive search term 2"] 
             }}
 
             {history_text}
@@ -275,7 +274,8 @@ class Recommender:
             
             response = self.client.models.generate_content(
                 model=self.model_name,
-                contents=contents
+                contents=contents,
+                config=types.GenerateContentConfig(temperature=0.1)
             )
             
             # Extract JSON from response
@@ -337,7 +337,8 @@ class Recommender:
             """
             response = self.client.models.generate_content(
                 model=self.model_name,
-                contents=[prompt, img]
+                contents=[prompt, img],
+                config=types.GenerateContentConfig(temperature=0.1)
             )
 
             json_match = re.search(r'\{.*\}', response.text, re.DOTALL)

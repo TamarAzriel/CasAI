@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Image as ImageIcon, X } from "lucide-react";
+import { formatPrice } from "@/lib/utils";
 
 const API_BASE_URL = "http://127.0.0.1:5000";
 
@@ -247,7 +248,7 @@ const StylingChat = ({ isOpen, onClose }: StylingChatProps) => {
                               </div>
                               <p className="text-[10px] text-white/60 font-medium line-clamp-2 mb-2 h-7 leading-tight tracking-wide uppercase font-body">{product.item_name}</p>
                               <div className="flex justify-between items-center">
-                                <span className="text-[9px] text-accent font-body tracking-[0.3em] font-semibold">{product.item_price}</span>
+                                <span className="text-[9px] text-accent font-body tracking-[0.3em] font-semibold">{formatPrice(product.item_price)}</span>
                                 <div className="w-8 h-px bg-accent/20 group-hover/card:w-12 transition-all duration-500" />
                               </div>
                             </motion.a>

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Trash2, ExternalLink, ShoppingBag, Heart } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import heroImage from "@/assets/hero-interior.jpg";
+import { formatPrice } from "@/lib/utils";
 
 const API_BASE_URL = "http://127.0.0.1:5000";
 
@@ -215,7 +216,7 @@ const SavedItems = () => {
                         </div>
                         <div className="flex justify-between items-center pt-4 border-t border-white/5 mt-auto">
                           <span className="font-body text-sm text-white/40 tracking-wider">
-                            {item.item_price}
+                            {formatPrice(item.item_price)}
                           </span>
                           <div className="w-2 h-2 rounded-full bg-accent/40 group-hover:bg-accent transition-colors" />
                         </div>

@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Download, ExternalLink, ShoppingBag, Heart, Bookmark, Check, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import heroImage from "@/assets/hero-interior.jpg"; 
-import { cn } from "@/lib/utils";
+import { cn, formatPrice } from "@/lib/utils";
 // כתובת השרת
 const API_BASE_URL = "http://127.0.0.1:5000";
 
@@ -393,7 +393,7 @@ const ProjectReveal = ({
                         </div>
                         <div className="flex justify-between items-center pt-4 border-t border-white/5 mt-auto">
                           <span className="font-body text-sm text-white/40 tracking-wider">
-                            {product.item_price || "N/A"}
+                            {formatPrice(product.item_price)}
                           </span>
                           <a 
                             href={product.item_url || '#'}
@@ -536,7 +536,7 @@ const ProjectReveal = ({
                     </p>
                     <div className="flex justify-between items-center">
                       <p className="font-body text-[11px] text-white/70">
-                        {item.item_price}
+                        {formatPrice(item.item_price)}
                       </p>
                       <a href={item.item_url} target="_blank" rel="noopener noreferrer">
                         <ExternalLink className="w-2.5 h-2.5 text-white/20 hover:text-white transition-colors" />

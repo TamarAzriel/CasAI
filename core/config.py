@@ -21,8 +21,8 @@ GENERATED_DIR = APPDATA_DIR / "generated"
 
 # Model configuration
 CLIP_MODEL_NAME = 'clip-ViT-B-32'
-YOLO_CONF_THRESHOLD = 0.25
-YOLO_MODEL_NAME = 'yolo11s.pt'  # Raw YOLO11s model
+YOLO_CONF_THRESHOLD = 0.25  # Base threshold
+YOLO_MODEL_NAME = 'yolo-train/best.onnx'  # Using the custom-trained model
 
 # Target furniture classes
 TARGET_CLASSES = {'bed', 'dresser', 'chair', 'sofa', 'lamp', 'table'}

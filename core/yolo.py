@@ -15,17 +15,14 @@ from .config import (
 class YOLODetectionService:
     """Service for detecting furniture in images using YOLO."""
     
-    # --- הרשימה המעודכנת (Whitelist) ---
-    # הוספנו את 72 (מקרר) כדי לנסות לתפוס ארונות גבוהים
+    # --- הרשימה המעודכנת למודל המותאם אישית (Custom Model Whitelist) ---
     FURNITURE_IDS = [
-        56, # Chair (כיסא)
-        57, # Couch (ספה)
-        58, # Potted plant (עציץ)
-        59, # Bed (מיטה)
-        60, # Dining Table (שולחן)
-        62, # TV (טלויזיה - לפעמים רלוונטי לשידה מתחת)
-        72, # Refrigerator (טריק: ארונות בגדים מזוהים לפעמים כמקררים)
-        75  # Vase (אגרטל)
+        0, # Bed
+        1, # Sofa
+        2, # Chair
+        3, # Table
+        4, # Lamp
+        7  # Wardrobe
     ]
 
     def __init__(self, yolo_model: Optional[YOLO] = None, model_path: Optional[str] = None):
@@ -77,16 +74,18 @@ class YOLODetectionService:
                 confidence = float(boxes.conf[i].cpu().numpy())
                 class_id = int(boxes.cls[i].cpu().numpy())
 
-                # --- סינון: בודק אם זה רהיט (או "מקרר/ארון") ---
+                # --- סינון וביטחון דינמי ---
                 if class_id not in self.FURNITURE_IDS:
                     continue
-                # -----------------------------------------------
+                
+                # סף ביטחון מיוחד לשולחנות (ID 3) כדי למנוע זיהוי שגוי של חלקי ספה
+                specific_threshold = 0.45 if class_id == 3 else conf_threshold
+                if confidence < specific_threshold:
+                    continue
+                # -------------------------
 
                 yolo_class_name = result.names.get(class_id)
-                # אם תפסנו מקרר, נשנה את השם שלו ל-wardrobe כדי שזה ייראה טוב
-                if class_id == 72:
-                    yolo_class_name = "wardrobe_or_cupboard"
-
+                
                 if yolo_class_name is None:
                     continue
 
